@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+.npm-cache/
+
+# Build
+dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local env
+.env
+.env.local
+
+# Editor
+.vscode/
+.idea/

@@ -40,14 +40,14 @@ export default function ValidationConsole({ documentId, documentValidationStatus
 
   const handleApprove = async (itemId: string) => {
     const comment = commentInputs[itemId];
-    const updated = await Promise.resolve(updateValidationStatus(itemId, 'approved', 'Current User', comment));
+    const updated = (await updateValidationStatus(itemId, 'approved', 'Current User', comment)) as ValidationItem | undefined;
     setItems((prev) => (updated ? prev.map((i) => (i.id === itemId ? updated : i)) : prev.map((i) => (i.id === itemId ? { ...i, status: 'approved' as const, reviewer: 'Current User' } : i))));
     setCommentInputs((prev) => ({ ...prev, [itemId]: '' }));
   };
 
   const handleReject = async (itemId: string) => {
     const comment = commentInputs[itemId];
-    const updated = await Promise.resolve(updateValidationStatus(itemId, 'rejected', 'Current User', comment));
+    const updated = (await updateValidationStatus(itemId, 'rejected', 'Current User', comment)) as ValidationItem | undefined;
     setItems((prev) => (updated ? prev.map((i) => (i.id === itemId ? updated : i)) : prev.map((i) => (i.id === itemId ? { ...i, status: 'rejected' as const, reviewer: 'Current User' } : i))));
     setCommentInputs((prev) => ({ ...prev, [itemId]: '' }));
   };

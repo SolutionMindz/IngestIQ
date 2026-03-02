@@ -6,7 +6,9 @@
   <string>com.newplatform.backend</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/sanjeev/Sites/NewPlatform/backend/.venv/bin/uvicorn</string>
+    <string>/Users/sanjeev/Sites/IngestIQ/backend/.venv/bin/python</string>
+    <string>-m</string>
+    <string>uvicorn</string>
     <string>app.main:app</string>
     <string>--host</string>
     <string>127.0.0.1</string>
@@ -14,7 +16,7 @@
     <string>8889</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/sanjeev/Sites/NewPlatform/backend</string>
+  <string>/Users/sanjeev/Sites/IngestIQ/backend</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>

@@ -1,6 +1,6 @@
 export type UploadStatus = 'idle' | 'uploading' | 'uploaded' | 'failed';
 export type ProcessingStage = 'pending' | 'extracting' | 'comparing' | 'done' | 'error' | 'cancelled';
-export type ValidationStatus = 'pending' | 'structurally_verified' | 'integrity_conflict' | 'training_approved';
+export type ValidationStatus = 'pending' | 'structurally_verified' | 'integrity_conflict' | 'training_approved' | 'screenshot_failed' | 'validation_failed';
 
 export interface DocumentSummary {
   documentId: string;

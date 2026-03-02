@@ -41,8 +41,9 @@ export default function DocumentIntake({ document, onUploadComplete }: DocumentI
   const [screenshotsLoading, setScreenshotsLoading] = useState(false);
   const [selectedPage, setSelectedPage] = useState<number | null>(null);
   const [modalPage, setModalPage] = useState<number | null>(null);
-  const [hoverPage, setHoverPage] = useState<number | null>(null);
+  const [_hoverPage, setHoverPage] = useState<number | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [failedScreenshotPages, setFailedScreenshotPages] = useState<Set<number>>(new Set());
 
   const handleCancelJob = useCallback(() => {
     if (!document?.documentId || !isInProgress(document.processingStage)) return;
@@ -70,8 +71,10 @@ export default function DocumentIntake({ document, onUploadComplete }: DocumentI
     if (!document?.documentId) {
       setScreenshots([]);
       setSelectedPage(null);
+      setFailedScreenshotPages(new Set());
       return;
     }
+    setFailedScreenshotPages(new Set());
     setScreenshotsLoading(true);
     fetchScreenshots(document.documentId)
       .then((list) => {
@@ -234,11 +237,18 @@ export default function DocumentIntake({ document, onUploadComplete }: DocumentI
                       onClick={() => setModalPage(selectedPage)}
                       className="block w-full max-w-md rounded border border-slate-200 overflow-hidden bg-white hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400"
                     >
-                      <img
-                        src={screenshotUrl(document.documentId, selectedPage)}
-                        alt={`Page ${selectedPage}`}
-                        className="w-full h-auto max-h-[420px] object-contain object-top"
-                      />
+                      {failedScreenshotPages.has(selectedPage) ? (
+                        <div className="w-full aspect-[3/4] max-h-[420px] flex items-center justify-center bg-slate-100 text-slate-500 text-sm">
+                          Image unavailable
+                        </div>
+                      ) : (
+                        <img
+                          src={screenshotUrl(document.documentId, selectedPage)}
+                          alt={`Page ${selectedPage}`}
+                          className="w-full h-auto max-h-[420px] object-contain object-top"
+                          onError={() => setFailedScreenshotPages((prev) => new Set(prev).add(selectedPage))}
+                        />
+                      )}
                     </button>
                     <p className="mt-1 text-xs text-slate-500">Click image to open full size</p>
                   </div>
@@ -257,11 +267,16 @@ export default function DocumentIntake({ document, onUploadComplete }: DocumentI
                       selectedPage === s.pageNumber ? 'border-amber-500 ring-2 ring-amber-200 bg-amber-50' : 'border-slate-200 hover:border-slate-400'
                     }`}
                   >
-                    <img
-                      src={screenshotUrl(document.documentId, s.pageNumber)}
-                      alt={`Page ${s.pageNumber}`}
-                      className="w-full aspect-[3/4] object-cover object-top"
-                    />
+                    {failedScreenshotPages.has(s.pageNumber) ? (
+                      <div className="w-full aspect-[3/4] flex items-center justify-center bg-slate-200 text-slate-500 text-xs">—</div>
+                    ) : (
+                      <img
+                        src={screenshotUrl(document.documentId, s.pageNumber)}
+                        alt={`Page ${s.pageNumber}`}
+                        className="w-full aspect-[3/4] object-cover object-top"
+                        onError={() => setFailedScreenshotPages((prev) => new Set(prev).add(s.pageNumber))}
+                      />
+                    )}
                     <span className={`block text-xs text-center py-0.5 ${selectedPage === s.pageNumber ? 'text-amber-800 font-medium' : 'text-slate-600'}`}>
                       {s.pageNumber}
                     </span>
@@ -282,11 +297,16 @@ export default function DocumentIntake({ document, onUploadComplete }: DocumentI
           onClick={() => setModalPage(null)}
         >
           <div className="relative max-w-[90vw] max-h-[90vh] bg-white rounded-lg shadow-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <img
-              src={screenshotUrl(document.documentId, modalPage)}
-              alt={`Page ${modalPage} full size`}
-              className="max-w-full max-h-[90vh] object-contain"
-            />
+            {failedScreenshotPages.has(modalPage) ? (
+              <div className="flex items-center justify-center w-full min-h-[200px] bg-slate-100 text-slate-500">Image unavailable</div>
+            ) : (
+              <img
+                src={screenshotUrl(document.documentId, modalPage)}
+                alt={`Page ${modalPage} full size`}
+                className="max-w-full max-h-[90vh] object-contain"
+                onError={() => setFailedScreenshotPages((prev) => new Set(prev).add(modalPage))}
+              />
+            )}
             <button
               type="button"
               onClick={() => setModalPage(null)}

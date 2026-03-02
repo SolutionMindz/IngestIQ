@@ -156,6 +156,37 @@ IngestIQ/
 
 ---
 
+## Host at http://new.packt.localhost:8004/
+
+To serve the app at **http://new.packt.localhost:8004/** (nginx + backend, no `npm run dev`):
+
+1. **Reload Nginx** (config is in `config/nginx/new.packt.localhost.conf`; copy to nginx `servers/` if needed):
+   ```bash
+   sudo nginx -s reload
+   ```
+
+2. **Ensure `new.packt.localhost` resolves** — add to `/etc/hosts` if not already:
+   ```
+   127.0.0.1   new.packt.localhost
+   ```
+
+3. **Run the backend on port 8889** (nginx proxies `/api/` and `/health` to it):
+   - **Option A – launchd (stays up after reboot):**
+     ```bash
+     cp /Users/sanjeev/Sites/IngestIQ/config/launchd/com.newplatform.backend.plist ~/Library/LaunchAgents/
+     launchctl load ~/Library/LaunchAgents/com.newplatform.backend.plist
+     ```
+   - **Option B – manual:**
+     ```bash
+     cd /Users/sanjeev/Sites/IngestIQ/backend && source .venv/bin/activate && uvicorn app.main:app --host 127.0.0.1 --port 8889
+     ```
+
+4. **Open:** [http://new.packt.localhost:8004/](http://new.packt.localhost:8004/)
+
+**If the page loads but API calls fail:** check the backend — `curl -s http://127.0.0.1:8889/health` should return `{"status":"ok"}`. See [Docs/setup/nginx_hosting.md](Docs/setup/nginx_hosting.md) for full nginx + launchd setup.
+
+---
+
 ## Keywords (for search and discovery)
 
 This project is designed for discoverability around **document ingestion**, **extraction**, and **pipelines**:

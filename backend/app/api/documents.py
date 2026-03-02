@@ -173,12 +173,20 @@ def get_canonical(document_id: str, db: Session = Depends(get_db)):
 # --- Page screenshots (for PDFs) ---
 @router.get("/documents/{document_id}/screenshots")
 def list_screenshots(document_id: str, db: Session = Depends(get_db)):
-    """List page screenshots: [{ pageNumber, path, checksum }, ...]."""
+    """List page screenshots: [{ pageNumber, path, checksum }, ...]. Only includes entries where the file exists on disk."""
     doc = db.query(Document).filter(Document.id == document_id).first()
     if not doc:
         raise HTTPException(404, "Document not found")
+    upload_path = get_settings().get_upload_path()
     rows = db.query(PageScreenshot).filter(PageScreenshot.document_id == document_id).order_by(PageScreenshot.page_number).all()
-    return [{"pageNumber": r.page_number, "path": r.file_path, "checksum": r.checksum} for r in rows]
+    result = []
+    for r in rows:
+        full_path = upload_path / r.file_path
+        if full_path.exists():
+            result.append({"pageNumber": r.page_number, "path": r.file_path, "checksum": r.checksum})
+        else:
+            logger.warning("Screenshot file missing for document %s page %s: %s", document_id, r.page_number, full_path)
+    return result
 
 
 # CORS: same origins as main.py (FileResponse may not get middleware CORS headers)

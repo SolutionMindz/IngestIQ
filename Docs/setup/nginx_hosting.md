@@ -49,8 +49,8 @@ This creates `frontend/dist`. Nginx will use this as `root`.
 
 ### 4.2 Install the Nginx config
 
-- Config file: **`config/nginx/new.packt.localhost.conf`**
-- It uses `root /Users/sanjeev/Sites/NewPlatform/frontend/dist`. If your repo path is different, edit the `root` line in the config.
+- **Config file:** **`config/nginx/new.packt.localhost.conf`**
+- It uses `root /Users/sanjeev/Sites/IngestIQ/frontend/dist`. If your repo path is different, edit the `root` line in the config.
 
 **macOS (Homebrew nginx):**
 
@@ -61,7 +61,7 @@ mkdir -p /opt/homebrew/etc/nginx/servers   # Apple Silicon
 mkdir -p /usr/local/etc/nginx/servers      # Intel
 
 # Copy (adjust path to your repo)
-cp /Users/sanjeev/Sites/NewPlatform/config/nginx/new.packt.localhost.conf /opt/homebrew/etc/nginx/servers/
+cp /Users/sanjeev/Sites/IngestIQ/config/nginx/new.packt.localhost.conf /opt/homebrew/etc/nginx/servers/
 
 # Include in main nginx.conf (if not already):
 # In http { } add: include servers/*.conf;
@@ -84,7 +84,7 @@ The backend must listen on **127.0.0.1:8889**. Two options:
 
 **Option A – launchd (macOS, recommended)**
 
-Create **`~/Library/LaunchAgents/com.newplatform.backend.plist`**:
+Create **`~/Library/LaunchAgents/com.newplatform.backend.plist`** (or copy from **`config/launchd/com.newplatform.backend.plist`** and fix paths):
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -95,7 +95,7 @@ Create **`~/Library/LaunchAgents/com.newplatform.backend.plist`**:
   <string>com.newplatform.backend</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/sanjeev/Sites/NewPlatform/backend/.venv/bin/uvicorn</string>
+    <string>/Users/sanjeev/Sites/IngestIQ/backend/.venv/bin/uvicorn</string>
     <string>app.main:app</string>
     <string>--host</string>
     <string>127.0.0.1</string>
@@ -103,7 +103,7 @@ Create **`~/Library/LaunchAgents/com.newplatform.backend.plist`**:
     <string>8889</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/sanjeev/Sites/NewPlatform/backend</string>
+  <string>/Users/sanjeev/Sites/IngestIQ/backend</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -128,7 +128,7 @@ curl -s http://127.0.0.1:8889/health
 **Option B – Run in background (simpler, but stops on reboot)**
 
 ```bash
-cd /Users/sanjeev/Sites/NewPlatform/backend
+cd /Users/sanjeev/Sites/IngestIQ/backend
 ./.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8889 &
 ```
 

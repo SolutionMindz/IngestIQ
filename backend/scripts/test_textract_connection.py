@@ -30,7 +30,7 @@ def main():
     region = os.environ.get("AWS_REGION", "us-east-1")
     access = os.environ.get("AWS_ACCESS_KEY_ID")
     secret = os.environ.get("AWS_SECRET_ACCESS_KEY")
-    token = os.environ.get("AWS_SESSION_TOKEN")
+    token = os.environ.get("AWS_SESSION_TOKEN") or os.environ.get("aws_session_token")
 
     if not access or not secret:
         print("FAIL: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set in backend/.env")

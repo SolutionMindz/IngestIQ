@@ -30,6 +30,13 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+frontend/test-results/
+frontend/playwright-report/
+
 # Local / data
 backend/data/*.db
 backend/uploads/

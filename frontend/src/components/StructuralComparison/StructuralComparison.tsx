@@ -447,7 +447,7 @@ export default function StructuralComparison({ documentId }: StructuralCompariso
             right ? <RawTextChips structure={right} label={`${rightLabel} (blocks as chips)`} /> : <p className="text-slate-500">No data</p>
           ) : (
             <>
-              <div className="text-xs font-semibold text-slate-500 uppercase mb-2">{rightLabel} structure{rightLabel === 'Textract' ? ' (AWS Textract)' : ''}</div>
+              <div className="text-xs font-semibold text-slate-500 uppercase mb-2">{rightLabel} structure</div>
               {right ? <StructureTree structure={right} mismatches={mismatches} side="pdf" /> : <p className="text-slate-500">No data</p>}
             </>
           )}

@@ -3,7 +3,7 @@ from typing import Literal
 
 
 class BoundingBox(BaseModel):
-    """Optional geometry for chip/raw-text layout (e.g. from Textract or PyMuPDF)."""
+    """Optional geometry for chip/raw-text layout (e.g. from OCR or PyMuPDF)."""
     left: float = 0
     top: float = 0
     width: float = 0
@@ -39,7 +39,7 @@ class Chapter(BaseModel):
 
 class DocumentStructure(BaseModel):
     documentId: str
-    source: Literal["docx", "pdf", "textract"]
+    source: Literal["docx", "pdf", "textract", "ocr"]
     chapters: list[Chapter]
     totalWordCount: int | None = None
     pageCount: int | None = None

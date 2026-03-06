@@ -1,5 +1,7 @@
 import { Routes, Route, NavLink } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
+import UsersPage from './pages/UsersPage';
+import HumanReviewPage from './pages/HumanReviewPage';
 
 function App() {
   return (
@@ -16,12 +18,30 @@ function App() {
             >
               Dashboard
             </NavLink>
+            <NavLink
+              to="/users"
+              className={({ isActive }) =>
+                `px-3 py-1 rounded ${isActive ? 'bg-slate-600' : 'hover:bg-slate-700'}`
+              }
+            >
+              Users
+            </NavLink>
+            <NavLink
+              to="/review"
+              className={({ isActive }) =>
+                `px-3 py-1 rounded ${isActive ? 'bg-slate-600' : 'hover:bg-slate-700'}`
+              }
+            >
+              Review
+            </NavLink>
           </nav>
         </div>
       </header>
       <main className="flex-1 max-w-full mx-auto w-full p-3 sm:p-4 min-w-0">
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/users" element={<UsersPage />} />
+          <Route path="/review" element={<HumanReviewPage />} />
         </Routes>
       </main>
     </div>

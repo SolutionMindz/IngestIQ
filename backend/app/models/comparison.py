@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, DateTime, ForeignKey, JSON
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -12,8 +13,8 @@ def uuid_str():
 class Comparison(Base):
     __tablename__ = "comparisons"
 
-    id = Column(String(36), primary_key=True, default=uuid_str)
-    document_id = Column(String(36), ForeignKey("documents.id"), nullable=False)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=uuid_str)
+    document_id = Column(UUID(as_uuid=False), ForeignKey("documents.id"), nullable=False)
     result = Column(JSON, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 

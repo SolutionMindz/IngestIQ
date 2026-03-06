@@ -22,6 +22,36 @@ SQL = [
 # comparison_id references comparisons(id) - add after metadata so comparisons exists
 SQL_FK = "ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS comparison_id UUID REFERENCES comparisons(id)"
 
+# A2I tasks table — created once; safe to run if already exists
+SQL_A2I_TABLE = """
+CREATE TABLE IF NOT EXISTS a2i_tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_id UUID NOT NULL REFERENCES documents(id),
+    page_number INTEGER NOT NULL,
+    human_loop_name VARCHAR(256),
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    trigger_reason VARCHAR(512) NOT NULL DEFAULT '',
+    original_textract_text TEXT,
+    human_corrected_text TEXT,
+    reviewer_id VARCHAR(256),
+    review_timestamp TIMESTAMP,
+    confidence_score FLOAT,
+    s3_output_uri VARCHAR(1024),
+    created_at TIMESTAMP DEFAULT NOW()
+)
+"""
+
+# Cross-reference column: page_validation_log → a2i_tasks
+SQL_A2I_FK = "ALTER TABLE page_validation_log ADD COLUMN IF NOT EXISTS a2i_task_id UUID REFERENCES a2i_tasks(id)"
+
+# Human Review UI — extend a2i_tasks with assignment + diff columns
+SQL_A2I_REVIEW_COLS = [
+    "ALTER TABLE a2i_tasks ADD COLUMN IF NOT EXISTS assigned_to VARCHAR(256)",
+    "ALTER TABLE a2i_tasks ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMP",
+    "ALTER TABLE a2i_tasks ADD COLUMN IF NOT EXISTS diff_items JSONB",
+    "ALTER TABLE a2i_tasks ADD COLUMN IF NOT EXISTS native_text_snapshot TEXT",
+]
+
 
 def main():
     engine = get_engine()
@@ -37,6 +67,22 @@ def main():
             print("OK:", SQL_FK[:70])
         except Exception as e:
             print("SKIP (comparison_id):", e)
+        try:
+            conn.execute(text(SQL_A2I_TABLE))
+            print("OK: CREATE TABLE IF NOT EXISTS a2i_tasks")
+        except Exception as e:
+            print("SKIP (a2i_tasks):", e)
+        try:
+            conn.execute(text(SQL_A2I_FK))
+            print("OK:", SQL_A2I_FK[:70])
+        except Exception as e:
+            print("SKIP (a2i_task_id):", e)
+        for stmt in SQL_A2I_REVIEW_COLS:
+            try:
+                conn.execute(text(stmt))
+                print("OK:", stmt[:70])
+            except Exception as e:
+                print("SKIP:", e)
     print("Done.")
 
 

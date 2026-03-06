@@ -22,4 +22,14 @@ export const fetchPageMarkdown = useBackend ? client.fetchPageMarkdown : mock.fe
 export const postPageValidation = useBackend ? client.postPageValidation : mock.postPageValidation;
 export const screenshotUrl = useBackend ? client.screenshotUrl : mock.screenshotUrl;
 
+export const fetchA2ITasks = useBackend ? client.fetchA2ITasks : mock.fetchA2ITasks;
+export const fetchA2ITask = useBackend ? client.fetchA2ITask : mock.fetchA2ITask;
+export const triggerA2IReview = useBackend ? client.triggerA2IReview : mock.triggerA2IReview;
+export const submitA2ICorrection = useBackend ? client.submitA2ICorrection : mock.submitA2ICorrection;
+export const pollA2IResults = useBackend ? client.pollA2IResults : mock.pollA2IResults;
+export const fetchAllA2ITasks = useBackend ? client.fetchAllA2ITasks : mock.fetchAllA2ITasks;
+export const fetchA2ITaskDetail = useBackend ? client.fetchA2ITaskDetail : mock.fetchA2ITaskDetail;
+export const assignA2ITask = useBackend ? client.assignA2ITask : mock.assignA2ITask;
+export const fetchReviewerStats = useBackend ? client.fetchReviewerStats : mock.fetchReviewerStats;
+
 export type { ScreenshotItem, PageAccuracyItem, PageValidationEntry, PageComparisonSummary, PageMarkdownResponse } from './client';

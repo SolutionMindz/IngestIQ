@@ -12,17 +12,12 @@ def get_engine():
     if _engine is None:
         settings = get_settings()
         url = settings.database_url
-        # For PostgreSQL, fail fast if unreachable instead of hanging
-        if url.strip().lower().startswith("postgresql"):
-            if "?" in url:
-                url = f"{url}&connect_timeout=5"
-            else:
-                url = f"{url}?connect_timeout=5"
+        # Fail fast if PostgreSQL is unreachable instead of hanging
+        connect_timeout_url = f"{url}&connect_timeout=5" if "?" in url else f"{url}?connect_timeout=5"
         _engine = create_engine(
-            url,
+            connect_timeout_url,
             pool_size=5,
             max_overflow=0,
-            connect_args={"check_same_thread": False} if "sqlite" in url.lower() else {},
         )
     return _engine
 
@@ -44,5 +39,5 @@ def get_db() -> Session:
 
 
 def init_db():
-    from app.models import document, extraction, comparison, validation, audit, page_validation  # noqa: F401
+    from app.models import document, extraction, comparison, validation, audit, page_validation, a2i  # noqa: F401
     Base.metadata.create_all(bind=get_engine())

@@ -1,18 +1,36 @@
 import { useState, useEffect } from 'react';
 import type { ValidationItem } from '../../types/validation';
-import { fetchValidationItems, updateValidationStatus, fetchPageAccuracy } from '../../api';
+import type { A2ITask, A2ITaskStatus } from '../../types/a2i';
+import { fetchValidationItems, updateValidationStatus, fetchPageAccuracy, fetchA2ITasks, triggerA2IReview } from '../../api';
 
 interface ValidationConsoleProps {
   documentId: string | null;
   documentValidationStatus?: string;
 }
 
+function A2IStatusBadge({ status }: { status: A2ITaskStatus }) {
+  const cfg: Record<A2ITaskStatus, { label: string; cls: string }> = {
+    pending:       { label: 'Pending Review', cls: 'bg-amber-100 text-amber-800' },
+    assigned:      { label: 'Assigned',         cls: 'bg-slate-100 text-slate-800' },
+    in_review:     { label: 'In Review',       cls: 'bg-blue-100 text-blue-800' },
+    under_review:  { label: 'Under Review',    cls: 'bg-blue-100 text-blue-800' },
+    completed:     { label: 'Human Verified',  cls: 'bg-green-100 text-green-800' },
+    auto_verified: { label: 'Auto Verified',   cls: 'bg-teal-100 text-teal-800' },
+    failed:        { label: 'Review Failed',   cls: 'bg-red-100 text-red-800' },
+  };
+  const { label, cls } = cfg[status] ?? cfg.failed;
+  return <span className={`px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{label}</span>;
+}
+
 export default function ValidationConsole({ documentId, documentValidationStatus }: ValidationConsoleProps) {
   const [items, setItems] = useState<ValidationItem[]>([]);
   const [pageAccuracy, setPageAccuracy] = useState<{ pageNumber: number; accuracyPct: number; status: string }[]>([]);
+  const [a2iTasks, setA2ITasks] = useState<A2ITask[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
+  const [triggeringPage, setTriggeringPage] = useState<number | null>(null);
+  const [sectionOpen, setSectionOpen] = useState(true);
 
   useEffect(() => {
     setLoading(true);
@@ -25,11 +43,15 @@ export default function ValidationConsole({ documentId, documentValidationStatus
   useEffect(() => {
     if (!documentId) {
       setPageAccuracy([]);
+      setA2ITasks([]);
       return;
     }
     fetchPageAccuracy(documentId)
       .then((list) => setPageAccuracy(list.map((a) => ({ pageNumber: a.pageNumber, accuracyPct: a.accuracyPct, status: a.status }))))
       .catch(() => setPageAccuracy([]));
+    fetchA2ITasks(documentId)
+      .then(setA2ITasks)
+      .catch(() => setA2ITasks([]));
   }, [documentId]);
 
   const documentConfidence = pageAccuracy.length > 0
@@ -37,6 +59,27 @@ export default function ValidationConsole({ documentId, documentValidationStatus
     : null;
   const anyPageBelow98 = pageAccuracy.some((a) => a.accuracyPct < 98);
   const approveDisabled = documentValidationStatus === 'validation_failed' || documentValidationStatus === 'screenshot_failed' || anyPageBelow98;
+
+  // A2I summary counts
+  const a2iByStatus = a2iTasks.reduce<Record<string, number>>((acc, t) => {
+    acc[t.status] = (acc[t.status] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const a2iTaskByPage = Object.fromEntries(a2iTasks.map((t) => [t.pageNumber, t]));
+
+  const handleTriggerA2I = async (pageNumber: number) => {
+    if (!documentId) return;
+    setTriggeringPage(pageNumber);
+    try {
+      const task = await triggerA2IReview(documentId, pageNumber);
+      setA2ITasks((prev) => [...prev.filter((t) => t.pageNumber !== pageNumber), task]);
+    } catch (err) {
+      console.error('Failed to trigger A2I review:', err);
+    } finally {
+      setTriggeringPage(null);
+    }
+  };
 
   const handleApprove = async (itemId: string) => {
     const comment = commentInputs[itemId];
@@ -74,9 +117,23 @@ export default function ValidationConsole({ documentId, documentValidationStatus
 
   return (
     <section className="bg-white rounded-lg shadow p-4 sm:p-6 min-w-0">
-      <h2 className="text-lg font-semibold text-slate-800 mb-4">4. Validation Console</h2>
+      <button
+        type="button"
+        onClick={() => setSectionOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 text-left mb-4 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 rounded"
+        aria-expanded={sectionOpen}
+      >
+        <h2 className="text-lg font-semibold text-slate-800">4. Validation Console</h2>
+        <span className="shrink-0 text-slate-500" aria-hidden>
+          {sectionOpen ? (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+          ) : (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+          )}
+        </span>
+      </button>
 
-      {documentId && (
+      {sectionOpen && documentId && (
         <div className="mb-6">
           <h3 className="text-sm font-medium text-slate-700 mb-2">Page-Level Validation Report</h3>
           {pageAccuracy.length === 0 ? (
@@ -97,6 +154,20 @@ export default function ValidationConsole({ documentId, documentValidationStatus
                   </div>
                 </div>
               )}
+
+              {/* A2I summary row */}
+              {a2iTasks.length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-2 text-xs items-center">
+                  <span className="font-medium text-slate-600">Human Reviews:</span>
+                  {(Object.entries(a2iByStatus) as [A2ITaskStatus, number][]).map(([status, n]) => (
+                    <span key={status} className="flex items-center gap-1">
+                      <A2IStatusBadge status={status} />
+                      <span className="text-slate-500">×{n}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+
               <div className="overflow-x-auto border border-slate-200 rounded">
                 <table className="w-full text-sm">
                   <thead>
@@ -104,23 +175,43 @@ export default function ValidationConsole({ documentId, documentValidationStatus
                       <th className="text-left p-2">Page</th>
                       <th className="text-left p-2">Accuracy %</th>
                       <th className="text-left p-2">Status</th>
+                      <th className="text-left p-2">Human Review</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {pageAccuracy.map((a) => (
-                      <tr
-                        key={a.pageNumber}
-                        className={a.status === 'ERROR' ? 'bg-red-50' : a.status === 'WARNING' ? 'bg-amber-50' : ''}
-                      >
-                        <td className="p-2">{a.pageNumber}</td>
-                        <td className="p-2">{a.accuracyPct.toFixed(2)}%</td>
-                        <td className="p-2">
-                          <span className={a.status === 'ERROR' ? 'text-red-700 font-medium' : a.status === 'WARNING' ? 'text-amber-700' : ''}>
-                            {a.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {pageAccuracy.map((a) => {
+                      const a2iTask = a2iTaskByPage[a.pageNumber];
+                      return (
+                        <tr
+                          key={a.pageNumber}
+                          className={a.status === 'ERROR' ? 'bg-red-50' : a.status === 'WARNING' ? 'bg-amber-50' : ''}
+                        >
+                          <td className="p-2">{a.pageNumber}</td>
+                          <td className="p-2">{a.accuracyPct.toFixed(2)}%</td>
+                          <td className="p-2">
+                            <span className={a.status === 'ERROR' ? 'text-red-700 font-medium' : a.status === 'WARNING' ? 'text-amber-700' : ''}>
+                              {a.status}
+                            </span>
+                          </td>
+                          <td className="p-2">
+                            {a2iTask ? (
+                              <A2IStatusBadge status={a2iTask.status} />
+                            ) : a.accuracyPct < 98 ? (
+                              <button
+                                type="button"
+                                disabled={triggeringPage === a.pageNumber}
+                                onClick={() => handleTriggerA2I(a.pageNumber)}
+                                className="px-2 py-0.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                              >
+                                {triggeringPage === a.pageNumber ? 'Sending…' : 'Send to Review'}
+                              </button>
+                            ) : (
+                              <span className="text-xs text-slate-400">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -134,7 +225,7 @@ export default function ValidationConsole({ documentId, documentValidationStatus
         </div>
       )}
 
-      {loading ? (
+      {sectionOpen && (loading ? (
         <div className="flex justify-center py-8">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-slate-800" />
         </div>
@@ -148,10 +239,16 @@ export default function ValidationConsole({ documentId, documentValidationStatus
                 <span className="font-medium">{item.documentName}</span>
                 <span
                   className={`px-2 py-0.5 rounded text-sm ${
-                    item.status === 'approved' ? 'bg-green-100 text-green-800' : item.status === 'rejected' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'
+                    item.status === 'approved' || item.status === 'human_verified' || item.status === 'auto_verified'
+                      ? 'bg-green-100 text-green-800'
+                      : item.status === 'rejected'
+                      ? 'bg-red-100 text-red-800'
+                      : item.status === 'under_review'
+                      ? 'bg-blue-100 text-blue-800'
+                      : 'bg-amber-100 text-amber-800'
                   }`}
                 >
-                  {item.status}
+                  {item.status === 'human_verified' ? 'Human Verified' : item.status === 'auto_verified' ? 'Auto Verified' : item.status === 'under_review' ? 'Under Review' : item.status === 'pending_review' ? 'Pending Review' : item.status}
                 </span>
               </div>
               <div className="flex items-center gap-4 mb-2">
@@ -230,7 +327,7 @@ export default function ValidationConsole({ documentId, documentValidationStatus
             </li>
           ))}
         </ul>
-      )}
+      ))}
     </section>
   );
 }

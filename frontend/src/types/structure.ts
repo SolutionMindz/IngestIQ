@@ -36,7 +36,7 @@ export interface Chapter {
 
 export interface DocumentStructure {
   documentId: string;
-  source: 'docx' | 'pdf' | 'textract';
+  source: 'docx' | 'pdf' | 'ocr' | 'textract';
   chapters: Chapter[];
   totalWordCount?: number;
   pageCount?: number;

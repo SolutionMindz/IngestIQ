@@ -13,6 +13,7 @@ export default function AuditLogs({ documentId }: AuditLogsProps) {
   const [filterFromDate, setFilterFromDate] = useState<string>('');
   const [filterToDate, setFilterToDate] = useState<string>('');
   const [sortNewestFirst, setSortNewestFirst] = useState(true);
+  const [sectionOpen, setSectionOpen] = useState(true);
 
   useEffect(() => {
     setFilterDoc(documentId ?? '');
@@ -48,7 +49,23 @@ export default function AuditLogs({ documentId }: AuditLogsProps) {
 
   return (
     <section className="bg-white rounded-lg shadow p-4 sm:p-6 min-w-0">
-      <h2 className="text-lg font-semibold text-slate-800 mb-4">5. Audit Logs</h2>
+      <button
+        type="button"
+        onClick={() => setSectionOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 text-left mb-4 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 rounded"
+        aria-expanded={sectionOpen}
+      >
+        <h2 className="text-lg font-semibold text-slate-800">5. Audit Logs</h2>
+        <span className="shrink-0 text-slate-500" aria-hidden>
+          {sectionOpen ? (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+          ) : (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+          )}
+        </span>
+      </button>
+      {sectionOpen && (
+      <>
       <div className="flex flex-wrap gap-3 sm:gap-4 mb-4">
         <label className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-sm min-w-0">
           <span className="text-slate-600 shrink-0">Filter by document:</span>
@@ -112,7 +129,19 @@ export default function AuditLogs({ documentId }: AuditLogsProps) {
                   <td className="border border-slate-200 px-3 py-2">{new Date(e.timestamp).toLocaleString()}</td>
                   <td className="border border-slate-200 px-3 py-2">{e.documentName ?? e.documentId}</td>
                   <td className="border border-slate-200 px-3 py-2">{e.parserVersion}</td>
-                  <td className="border border-slate-200 px-3 py-2">{e.validationResult}</td>
+                  <td className="border border-slate-200 px-3 py-2">
+                    {e.validationResult === 'Human Verified' ? (
+                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                        Human Verified
+                      </span>
+                    ) : e.validationResult === 'Pending Review' ? (
+                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
+                        Pending Review
+                      </span>
+                    ) : (
+                      e.validationResult
+                    )}
+                  </td>
                   <td className="border border-slate-200 px-3 py-2">{e.reviewer}</td>
                   <td className="border border-slate-200 px-3 py-2">{e.action}</td>
                 </tr>
@@ -120,6 +149,8 @@ export default function AuditLogs({ documentId }: AuditLogsProps) {
             </tbody>
           </table>
         </div>
+      )}
+      </>
       )}
     </section>
   );

@@ -16,6 +16,17 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# Ensure Tesseract binary is found when running under launchd (limited PATH).
+import os as _os
+for _t in ["/opt/homebrew/bin/tesseract", "/usr/local/bin/tesseract"]:
+    if _os.path.isfile(_t):
+        try:
+            import pytesseract as _pyt
+            _pyt.pytesseract.tesseract_cmd = _t
+        except Exception:
+            pass
+        break
+
 ACCURACY_THRESHOLD_PCT = 98.0
 CRITICAL_MISMATCH_PCT = 80.0
 

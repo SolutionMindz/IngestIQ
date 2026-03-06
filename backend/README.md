@@ -31,7 +31,7 @@ FastAPI backend for document upload, DOCX/PDF extraction, structural comparison,
 - `GET /api/documents` — list documents.
 - `GET /api/documents/{id}` — get document.
 - `GET /api/documents/{id}/versions` — version history.
-- `GET /api/documents/{id}/structure?source=docx|pdf|textract` — get extraction structure.
+- `GET /api/documents/{id}/structure?source=docx|pdf|ocr` — get extraction structure.
 - `GET /api/documents/{id}/comparison` — get comparison result.
 - `GET /api/documents/{id}/screenshots` — list page screenshots (PDF only).
 - `GET /api/documents/{id}/screenshots/{page}` — full-resolution PNG for a page.
@@ -53,7 +53,7 @@ Uploaded files are stored under `backend/uploads/` (or `UPLOAD_DIR`). The folder
 
 ## PDF extraction
 
-PDF extraction uses AWS Textract when `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are set. Otherwise a mock extraction is stored so the pipeline still runs.
+PDF extraction produces two structures for comparison: **native** (PyMuPDF) and **OCR** (pytesseract on page screenshots or rendered pages). Install Tesseract for OCR extraction (see below). The pipeline always runs; OCR uses screenshots when available, otherwise renders each PDF page to an image.
 
 ## Page-level screenshot validation (PDFs)
 

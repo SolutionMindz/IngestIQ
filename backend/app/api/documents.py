@@ -1,7 +1,7 @@
 import logging
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks, Request
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -20,7 +20,7 @@ class PageValidationBody(BaseModel):
     status: str | None = None
     comment: str | None = None
 from app.services.ingestion import save_upload_and_create_document
-from app.services.jobs import run_extraction_and_comparison, request_cancel, run_re_extract
+from app.services.jobs import request_cancel, enqueue_extraction, enqueue_re_extract, get_queue_depth
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -46,7 +46,6 @@ def _doc_to_summary(d: Document) -> DocumentSummary:
 
 @router.post("/documents/upload", response_model=DocumentSummary)
 def upload_document(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
@@ -66,7 +65,8 @@ def upload_document(
     doc = db.query(Document).filter(Document.id == doc_id).first()
     if not doc:
         raise HTTPException(500, "Document not created")
-    background_tasks.add_task(run_extraction_and_comparison, doc_id)
+    enqueue_extraction(doc_id)
+    logger.info("Upload: enqueued extraction for %s (queue depth=%d)", doc_id, get_queue_depth())
     return _doc_to_summary(doc)
 
 
@@ -114,10 +114,9 @@ def cancel_document_job(document_id: str, db: Session = Depends(get_db)):
 @router.post("/documents/{document_id}/re-extract", response_model=DocumentSummary)
 def re_extract_document(
     document_id: str,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    """Re-run PDF extraction and comparison using the existing uploaded file and screenshots. Use after fixing AWS credentials or to refresh Textract/Native output."""
+    """Re-run PDF extraction and comparison using the existing uploaded file and screenshots."""
     doc = db.query(Document).filter(Document.id == document_id).first()
     if not doc:
         raise HTTPException(404, "Document not found")
@@ -129,12 +128,13 @@ def re_extract_document(
         raise HTTPException(404, "Uploaded file not found; cannot re-extract")
     if file_path.suffix.lower() != ".pdf":
         raise HTTPException(400, "Re-extract is only supported for PDF documents")
-    background_tasks.add_task(run_re_extract, document_id)
     doc.processing_stage = "extracting"
     doc.error_type = None
     doc.error_message = None
     db.commit()
     db.refresh(doc)
+    enqueue_re_extract(document_id)
+    logger.info("Re-extract: enqueued for %s (queue depth=%d)", document_id, get_queue_depth())
     return _doc_to_summary(doc)
 
 
@@ -259,29 +259,29 @@ def get_page_comparison_summary(document_id: str, page_number: int, db: Session 
     if not doc:
         raise HTTPException(404, "Document not found")
     pdf_ext = db.query(Extraction).filter(Extraction.document_id == document_id, Extraction.source == "pdf").first()
-    textract_ext = db.query(Extraction).filter(Extraction.document_id == document_id, Extraction.source == "textract").first()
-    if not pdf_ext and not textract_ext:
-        raise HTTPException(404, "No PDF or Textract extraction found")
+    ocr_ext = db.query(Extraction).filter(Extraction.document_id == document_id, Extraction.source == "ocr").first()
+    if not pdf_ext and not ocr_ext:
+        raise HTTPException(404, "No PDF or OCR extraction found")
     heading = f"Page {page_number}"
     pdf_ch = None
-    textract_ch = None
+    ocr_ch = None
     if pdf_ext and pdf_ext.structure:
         for ch in pdf_ext.structure.get("chapters") or []:
             if ch.get("heading") == heading:
                 pdf_ch = ch
                 break
-    if textract_ext and textract_ext.structure:
-        for ch in textract_ext.structure.get("chapters") or []:
+    if ocr_ext and ocr_ext.structure:
+        for ch in ocr_ext.structure.get("chapters") or []:
             if ch.get("heading") == heading:
-                textract_ch = ch
+                ocr_ch = ch
                 break
     blocks_native = (pdf_ch.get("content_blocks") or []) if pdf_ch else []
-    blocks_textract = (textract_ch.get("content_blocks") or []) if textract_ch else []
+    blocks_ocr = (ocr_ch.get("content_blocks") or []) if ocr_ch else []
     tables_native = sum(1 for b in blocks_native if b.get("type") == "table")
-    tables_textract = sum(1 for b in blocks_textract if b.get("type") == "table")
+    tables_ocr = sum(1 for b in blocks_ocr if b.get("type") == "table")
     word_count_native = sum((b.get("wordCount") or 0) for b in blocks_native) or sum(len((b.get("content") or "").split()) for b in blocks_native)
-    word_count_textract = sum((b.get("wordCount") or 0) for b in blocks_textract) or sum(len((b.get("content") or "").split()) for b in blocks_textract)
-    missing_block_count = abs(len(blocks_native) - len(blocks_textract))
+    word_count_ocr = sum((b.get("wordCount") or 0) for b in blocks_ocr) or sum(len((b.get("content") or "").split()) for b in blocks_ocr)
+    missing_block_count = abs(len(blocks_native) - len(blocks_ocr))
     acc_row = db.query(PageAccuracy).filter(PageAccuracy.document_id == document_id, PageAccuracy.page_number == page_number).first()
     accuracy_score = round(acc_row.accuracy_pct, 2) if acc_row else None
     val_row = (
@@ -291,23 +291,22 @@ def get_page_comparison_summary(document_id: str, page_number: int, db: Session 
         .first()
     )
     validation_status = val_row.status if val_row else None
-    confidence_avg_textract = None
-    if textract_ext and textract_ext.metadata_ and isinstance(textract_ext.metadata_, dict):
-        # Prefer per-page Textract confidence; fall back to document-level average (e.g. older extractions)
-        page_conf = (textract_ext.metadata_.get("page_confidence") or {}).get(page_number)
-        confidence_avg_textract = page_conf if page_conf is not None else textract_ext.metadata_.get("average_confidence")
+    confidence_avg_ocr = None
+    if ocr_ext and ocr_ext.metadata_ and isinstance(ocr_ext.metadata_, dict):
+        page_conf = (ocr_ext.metadata_.get("page_confidence") or {}).get(page_number)
+        confidence_avg_ocr = page_conf if page_conf is not None else ocr_ext.metadata_.get("average_confidence")
     return {
         "pageNumber": page_number,
         "wordCountNative": word_count_native,
-        "wordCountTextract": word_count_textract,
+        "wordCountTextract": word_count_ocr,
         "blockCountNative": len(blocks_native),
-        "blockCountTextract": len(blocks_textract),
+        "blockCountTextract": len(blocks_ocr),
         "tableCountNative": tables_native,
-        "tableCountTextract": tables_textract,
+        "tableCountTextract": tables_ocr,
         "missingBlockCount": missing_block_count,
         "accuracyScore": accuracy_score,
         "validationStatus": validation_status,
-        "confidenceAvgTextract": confidence_avg_textract,
+        "confidenceAvgTextract": confidence_avg_ocr,
     }
 
 
@@ -319,10 +318,14 @@ def get_page_markdown(
     db: Session = Depends(get_db),
 ):
     """Return the page's content as a single markdown string (paragraphs + markdown tables) for easy preview.
-    source: 'pdf' | 'textract' to choose extraction; if omitted, prefers Textract when available."""
+    source: 'pdf' | 'ocr' to choose extraction; if omitted, prefers OCR when available."""
     doc = db.query(Document).filter(Document.id == document_id).first()
     if not doc:
         raise HTTPException(404, "Document not found")
+    ocr_ext = db.query(Extraction).filter(
+        Extraction.document_id == document_id,
+        Extraction.source == "ocr",
+    ).first()
     textract_ext = db.query(Extraction).filter(
         Extraction.document_id == document_id,
         Extraction.source == "textract",
@@ -334,10 +337,14 @@ def get_page_markdown(
     structure = None
     if source == "pdf" and pdf_ext and pdf_ext.structure:
         structure = pdf_ext.structure
+    elif source == "ocr" and ocr_ext and ocr_ext.structure:
+        structure = ocr_ext.structure
     elif source == "textract" and textract_ext and textract_ext.structure:
         structure = textract_ext.structure
     elif source is None:
-        if textract_ext and textract_ext.structure:
+        if ocr_ext and ocr_ext.structure:
+            structure = ocr_ext.structure
+        elif textract_ext and textract_ext.structure:
             structure = textract_ext.structure
         elif pdf_ext and pdf_ext.structure:
             structure = pdf_ext.structure

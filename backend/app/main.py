@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.models.base import init_db
-from app.api import documents, structure, comparison, validation, audit
+from app.api import documents, structure, comparison, validation, audit, a2i
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -55,6 +55,7 @@ app.include_router(structure.router, prefix="/api", tags=["structure"])
 app.include_router(comparison.router, prefix="/api", tags=["comparison"])
 app.include_router(validation.router, prefix="/api", tags=["validation"])
 app.include_router(audit.router, prefix="/api", tags=["audit"])
+app.include_router(a2i.router, prefix="/api", tags=["a2i"])
 
 
 @app.get("/health")

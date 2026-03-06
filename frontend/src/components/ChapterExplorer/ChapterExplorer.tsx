@@ -2,12 +2,15 @@ import { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { DocumentStructure, Chapter, ContentBlock } from '../../types/structure';
 import type { PageAccuracyItem } from '../../api';
+import type { A2ITask } from '../../types/a2i';
 import {
   fetchStructure,
   fetchPageAccuracy,
   fetchPageValidation,
   fetchPageComparisonSummary,
   postPageValidation,
+  fetchA2ITasks,
+  triggerA2IReview,
 } from '../../api';
 
 const PAGE_STATUS_OPTIONS = [
@@ -83,12 +86,85 @@ function renderPageContent(
   );
 }
 
+function A2ITaskPanel({
+  task,
+  onTrigger,
+  triggering,
+  accuracyPct,
+}: {
+  task: A2ITask | null;
+  onTrigger: () => void;
+  triggering: boolean;
+  accuracyPct: number | null;
+}) {
+  if (task) {
+    if (task.status === 'completed') {
+      return (
+        <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded text-sm">
+          <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+          <div>
+            <span className="font-medium text-green-800">Human Verified</span>
+            {task.reviewerId && <span className="text-green-700 ml-1">by {task.reviewerId}</span>}
+            {task.reviewTimestamp && (
+              <span className="text-green-600 ml-1">· {new Date(task.reviewTimestamp).toLocaleString()}</span>
+            )}
+          </div>
+        </div>
+      );
+    }
+    if (task.status === 'under_review') {
+      return (
+        <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
+          <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 animate-pulse" />
+          <span className="text-blue-800 font-medium">Human Review In Progress</span>
+          {task.humanLoopName && <span className="text-blue-600 text-xs">({task.humanLoopName})</span>}
+        </div>
+      );
+    }
+    if (task.status === 'pending') {
+      return (
+        <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded text-sm">
+          <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+          <span className="text-amber-800 font-medium">Pending Review</span>
+          <span className="text-amber-600 text-xs ml-auto">{task.triggerReason}</span>
+        </div>
+      );
+    }
+    if (task.status === 'failed') {
+      return (
+        <div className="flex items-center gap-2 p-2 bg-red-50 border border-red-200 rounded text-sm">
+          <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+          <span className="text-red-800 font-medium">Review Failed</span>
+        </div>
+      );
+    }
+    return null;
+  }
+
+  if (accuracyPct != null && accuracyPct < 98) {
+    return (
+      <button
+        type="button"
+        disabled={triggering}
+        onClick={onTrigger}
+        className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+      >
+        {triggering ? 'Sending to Review…' : 'Send to Human Review'}
+      </button>
+    );
+  }
+
+  return null;
+}
+
 export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
   const [pdfStructure, setPdfStructure] = useState<DocumentStructure | null>(null);
   const [textractStructure, setTextractStructure] = useState<DocumentStructure | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedPage, setSelectedPage] = useState<number | null>(null);
   const [pageAccuracyList, setPageAccuracyList] = useState<PageAccuracyItem[]>([]);
+  const [a2iTasks, setA2ITasks] = useState<A2ITask[]>([]);
+  const [triggeringA2I, setTriggeringA2I] = useState(false);
   const [pageValidation, setPageValidation] = useState<{
     reviewer: string;
     status: string;
@@ -115,6 +191,7 @@ export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
       setTextractStructure(null);
       setSelectedPage(null);
       setPageAccuracyList([]);
+      setA2ITasks([]);
       setPageValidation(null);
       setPageSummary(null);
       return;
@@ -133,6 +210,7 @@ export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
   useEffect(() => {
     if (!documentId) return;
     fetchPageAccuracy(documentId).then(setPageAccuracyList).catch(() => setPageAccuracyList([]));
+    fetchA2ITasks(documentId).then(setA2ITasks).catch(() => setA2ITasks([]));
   }, [documentId]);
 
   const pageCount =
@@ -165,12 +243,26 @@ export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
   const accuracyForPage = (pageNum: number) =>
     pageAccuracyList.find((a) => a.pageNumber === pageNum);
   const statusForPage = (pageNum: number) => accuracyForPage(pageNum)?.status ?? 'ERROR';
+  const a2iTaskByPage = Object.fromEntries(a2iTasks.map((t) => [t.pageNumber, t]));
+
+  const handleTriggerA2I = async () => {
+    if (!documentId || selectedPage == null) return;
+    setTriggeringA2I(true);
+    try {
+      const task = await triggerA2IReview(documentId, selectedPage);
+      setA2ITasks((prev) => [...prev.filter((t) => t.pageNumber !== selectedPage), task]);
+    } catch (err) {
+      console.error('Failed to trigger A2I review:', err);
+    } finally {
+      setTriggeringA2I(false);
+    }
+  };
 
   if (!documentId) {
     return (
       <section className="bg-white rounded-lg shadow p-4 sm:p-6 min-w-0">
         <h2 className="text-lg font-semibold text-slate-800 mb-4">3. Chapter Explorer</h2>
-        <p className="text-slate-500">Select a document to compare Native PDF vs Textract by page.</p>
+        <p className="text-slate-500">Select a document to compare Native PDF vs AWS Textract by page.</p>
       </section>
     );
   }
@@ -200,13 +292,14 @@ export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
     <section className="bg-white rounded-lg shadow p-4 sm:p-6 min-w-0">
       <h2 className="text-lg font-semibold text-slate-800 mb-4">3. Chapter Explorer</h2>
       <div className="grid grid-cols-1 lg:grid-cols-[200px_1fr] gap-3 sm:gap-4 min-h-0">
-        {/* Page navigation panel (hierarchy: page numbers only) */}
+        {/* Page navigation panel */}
         <div className="border border-slate-200 rounded overflow-auto max-h-[320px] sm:max-h-[420px] min-h-0 bg-slate-50">
           <div className="p-2 text-xs font-semibold text-slate-500 uppercase">Pages</div>
           {pages.map((pageNum) => {
             const acc = accuracyForPage(pageNum);
             const status = statusForPage(pageNum);
             const isSelected = selectedPage === pageNum;
+            const a2iTask = a2iTaskByPage[pageNum];
             return (
               <button
                 key={pageNum}
@@ -225,6 +318,18 @@ export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
                 {acc != null && (
                   <span className="text-xs text-slate-500 ml-auto">{acc.accuracyPct.toFixed(1)}%</span>
                 )}
+                {/* A2I dot indicator */}
+                {a2iTask && (
+                  <span
+                    className={`shrink-0 w-1.5 h-1.5 rounded-full ${
+                      a2iTask.status === 'completed' ? 'bg-green-400' :
+                      a2iTask.status === 'under_review' ? 'bg-blue-400' :
+                      a2iTask.status === 'failed' ? 'bg-red-400' : 'bg-amber-400'
+                    }`}
+                    title={`A2I: ${a2iTask.status}`}
+                    aria-hidden
+                  />
+                )}
               </button>
             );
           })}
@@ -233,7 +338,7 @@ export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
           )}
         </div>
 
-        {/* Comparison section: two columns with full content */}
+        {/* Comparison section */}
         <div className="min-w-0 flex flex-col gap-4">
           {selectedPage != null ? (
             <>
@@ -247,7 +352,7 @@ export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
                   )}
                 </div>
                 <div className="p-3 sm:p-4 bg-slate-50 overflow-auto max-h-[400px] min-h-[200px]">
-                  <div className="text-xs font-semibold text-slate-500 uppercase mb-2">Textract (Right)</div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase mb-2">AWS Textract (Right)</div>
                   {renderPageContent(
                     textractChapter,
                     'Textract extraction failed for this page.',
@@ -269,8 +374,19 @@ export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
                       <div>Page accuracy: {pageSummary.accuracyScore}%</div>
                     )}
                     {pageSummary.confidenceAvgTextract != null && (
-                      <div>Textract confidence (avg): {pageSummary.confidenceAvgTextract}%</div>
+                      <div>OCR confidence (avg): {pageSummary.confidenceAvgTextract}%</div>
                     )}
+                  </div>
+
+                  {/* A2I task status for this page */}
+                  <div className="mt-3 pt-3 border-t border-slate-200">
+                    <div className="text-xs font-semibold text-slate-500 uppercase mb-2">Human Review</div>
+                    <A2ITaskPanel
+                      task={a2iTaskByPage[selectedPage] ?? null}
+                      onTrigger={handleTriggerA2I}
+                      triggering={triggeringA2I}
+                      accuracyPct={accuracyForPage(selectedPage)?.accuracyPct ?? null}
+                    />
                   </div>
                 </div>
               )}
@@ -340,7 +456,7 @@ export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
             </>
           ) : (
             <div className="border border-slate-200 rounded p-6 text-slate-500 text-center">
-              Select a page from the list to view Native vs Textract comparison.
+              Select a page from the list to view Native PDF vs AWS Textract comparison.
             </div>
           )}
         </div>

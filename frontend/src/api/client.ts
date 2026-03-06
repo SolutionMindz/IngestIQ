@@ -3,6 +3,7 @@ import type { DocumentStructure } from '../types/structure';
 import type { ComparisonResult } from '../types/comparison';
 import type { ValidationItem } from '../types/validation';
 import type { AuditLogEntry } from '../types/audit';
+import type { A2ITask, A2ITaskDetail, ReviewerStats } from '../types/a2i';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8889';
 
@@ -49,7 +50,7 @@ export async function fetchVersionHistory(documentId: string): Promise<DocumentV
   return request<DocumentVersion[]>(`/api/documents/${documentId}/versions`);
 }
 
-export async function fetchStructure(documentId: string, source: 'docx' | 'pdf' | 'textract'): Promise<DocumentStructure | null> {
+export async function fetchStructure(documentId: string, source: 'docx' | 'pdf' | 'ocr' | 'textract'): Promise<DocumentStructure | null> {
   const s = await request<DocumentStructure | null>(`/api/documents/${documentId}/structure?source=${source}`);
   return s ?? null;
 }
@@ -174,7 +175,7 @@ export interface PageMarkdownResponse {
 export async function fetchPageMarkdown(
   documentId: string,
   pageNumber: number,
-  source?: 'pdf' | 'textract'
+  source?: 'pdf' | 'ocr' | 'textract'
 ): Promise<PageMarkdownResponse | null> {
   try {
     const qs = source ? `?source=${encodeURIComponent(source)}` : '';
@@ -197,4 +198,78 @@ export async function postPageValidation(
     body: JSON.stringify(body),
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+// --- A2I (Amazon Augmented AI) ---
+
+export async function fetchA2ITasks(documentId: string): Promise<A2ITask[]> {
+  return request<A2ITask[]>(`/api/a2i/documents/${documentId}/tasks`);
+}
+
+export async function fetchA2ITask(documentId: string, pageNumber: number): Promise<A2ITask | null> {
+  try {
+    return await request<A2ITask>(`/api/a2i/documents/${documentId}/tasks/${pageNumber}`);
+  } catch {
+    return null;
+  }
+}
+
+export async function triggerA2IReview(documentId: string, pageNumber: number): Promise<A2ITask> {
+  return request<A2ITask>(`/api/a2i/documents/${documentId}/tasks/${pageNumber}/trigger`, {
+    method: 'POST',
+  });
+}
+
+export async function submitA2ICorrection(
+  taskId: string,
+  correctedText: string,
+  reviewerId: string,
+  comment?: string
+): Promise<void> {
+  await request(`/api/a2i/tasks/${taskId}/complete`, {
+    method: 'POST',
+    body: JSON.stringify({ correctedText, reviewerId, comment }),
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+export async function pollA2IResults(documentId: string): Promise<{ completed: number }> {
+  return request<{ completed: number }>(`/api/a2i/documents/${documentId}/poll`, {
+    method: 'POST',
+  });
+}
+
+export async function fetchAllA2ITasks(params?: {
+  status?: string;
+  reviewerId?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<A2ITask[]> {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set('status', params.status);
+  if (params?.reviewerId) qs.set('reviewer_id', params.reviewerId);
+  if (params?.limit != null) qs.set('limit', String(params.limit));
+  if (params?.offset != null) qs.set('offset', String(params.offset));
+  const q = qs.toString() ? `?${qs.toString()}` : '';
+  return request<A2ITask[]>(`/api/a2i/tasks${q}`);
+}
+
+export async function fetchA2ITaskDetail(taskId: string): Promise<A2ITaskDetail | null> {
+  try {
+    return await request<A2ITaskDetail>(`/api/a2i/tasks/${taskId}/detail`);
+  } catch {
+    return null;
+  }
+}
+
+export async function assignA2ITask(taskId: string, reviewerId: string): Promise<A2ITask> {
+  return request<A2ITask>(`/api/a2i/tasks/${taskId}/assign`, {
+    method: 'POST',
+    body: JSON.stringify({ reviewerId }),
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+export async function fetchReviewerStats(reviewerId: string): Promise<ReviewerStats> {
+  return request<ReviewerStats>(`/api/a2i/reviewer/${encodeURIComponent(reviewerId)}/stats`);
 }

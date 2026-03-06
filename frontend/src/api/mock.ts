@@ -3,6 +3,7 @@ import type { DocumentStructure } from '../types/structure';
 import type { ComparisonResult } from '../types/comparison';
 import type { ValidationItem } from '../types/validation';
 import type { AuditLogEntry } from '../types/audit';
+import type { A2ITask, A2ITaskDetail, DiffItem, ReviewerStats } from '../types/a2i';
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -38,7 +39,7 @@ const MOCK_VERSIONS: DocumentVersion[] = [
   { documentId: 'doc-2', version: '2.0', name: 'API Design Guide.pdf', createdAt: '2025-02-15T11:00:00Z' },
 ];
 
-const createMockStructure = (documentId: string, source: 'docx' | 'pdf' | 'textract', hasMismatch = false): DocumentStructure => ({
+const createMockStructure = (documentId: string, source: 'docx' | 'pdf' | 'ocr' | 'textract', hasMismatch = false): DocumentStructure => ({
   documentId,
   source,
   totalWordCount: source === 'docx' ? 12500 : hasMismatch ? 12480 : 12500,
@@ -190,9 +191,9 @@ export async function fetchVersionHistory(documentId: string): Promise<DocumentV
   );
 }
 
-export async function fetchStructure(documentId: string, source: 'docx' | 'pdf' | 'textract'): Promise<DocumentStructure | null> {
+export async function fetchStructure(documentId: string, source: 'docx' | 'pdf' | 'ocr' | 'textract'): Promise<DocumentStructure | null> {
   await delay(350);
-  const hasMismatch = documentId === 'doc-2' && (source === 'pdf' || source === 'textract');
+  const hasMismatch = documentId === 'doc-2' && (source === 'pdf' || source === 'ocr' || source === 'textract');
   return createMockStructure(documentId, source, hasMismatch);
 }
 
@@ -299,10 +300,178 @@ export async function fetchPageComparisonSummary(
 export async function fetchPageMarkdown(
   _documentId: string,
   pageNumber: number,
-  _source?: 'pdf' | 'textract'
+  _source?: 'pdf' | 'ocr' | 'textract'
 ): Promise<{ markdown: string; pageNumber: number } | null> {
   await delay(100);
   return { markdown: `# Page ${pageNumber}\n\n(Mock: no markdown content.)`, pageNumber };
+}
+
+// --- A2I mock data ---
+
+const MOCK_A2I_TASKS: A2ITask[] = [
+  {
+    id: 'a2i-task-1',
+    documentId: 'doc-2',
+    pageNumber: 5,
+    status: 'pending',
+    triggerReason: 'accuracy_pct=91.2, textract_conf=94.1',
+    correctionApplied: false,
+    confidenceScore: 94.1,
+    createdAt: '2025-02-22T15:00:00Z',
+  },
+  {
+    id: 'a2i-task-2',
+    documentId: 'doc-2',
+    pageNumber: 12,
+    status: 'under_review',
+    triggerReason: 'table_structure_mismatch',
+    humanLoopName: 'ingestiq-abcd1234-p12-xyz',
+    correctionApplied: false,
+    confidenceScore: 96.5,
+    createdAt: '2025-02-22T15:01:00Z',
+  },
+  {
+    id: 'a2i-task-3',
+    documentId: 'doc-2',
+    pageNumber: 23,
+    status: 'completed',
+    triggerReason: 'code_block_detected, accuracy_pct=93.8',
+    reviewerId: 'worker-001',
+    reviewTimestamp: '2025-02-22T16:30:00Z',
+    correctionApplied: true,
+    confidenceScore: 91.0,
+    createdAt: '2025-02-22T15:02:00Z',
+  },
+];
+
+export async function fetchA2ITasks(documentId: string): Promise<A2ITask[]> {
+  await delay(200);
+  return MOCK_A2I_TASKS.filter((t) => t.documentId === documentId);
+}
+
+export async function fetchA2ITask(documentId: string, pageNumber: number): Promise<A2ITask | null> {
+  await delay(100);
+  return MOCK_A2I_TASKS.find((t) => t.documentId === documentId && t.pageNumber === pageNumber) ?? null;
+}
+
+export async function triggerA2IReview(documentId: string, pageNumber: number): Promise<A2ITask> {
+  await delay(300);
+  const newTask: A2ITask = {
+    id: `a2i-task-${Date.now()}`,
+    documentId,
+    pageNumber,
+    status: 'pending',
+    triggerReason: 'manual_trigger',
+    correctionApplied: false,
+    createdAt: new Date().toISOString(),
+  };
+  MOCK_A2I_TASKS.push(newTask);
+  return newTask;
+}
+
+export async function submitA2ICorrection(
+  taskId: string,
+  _correctedText: string,
+  reviewerId: string,
+  _comment?: string
+): Promise<void> {
+  await delay(300);
+  const task = MOCK_A2I_TASKS.find((t) => t.id === taskId);
+  if (task) {
+    task.status = 'completed';
+    task.reviewerId = reviewerId;
+    task.reviewTimestamp = new Date().toISOString();
+    task.correctionApplied = true;
+  }
+}
+
+export async function pollA2IResults(_documentId: string): Promise<{ completed: number }> {
+  await delay(200);
+  return { completed: 0 };
+}
+
+const MOCK_DIFF_ITEMS: DiffItem[] = [
+  { id: 'diff-1', diffType: 'changed_word', nativeValue: 'initialization', textractValue: 'initiallzation', lineIndex: 12 },
+  { id: 'diff-2', diffType: 'missing_word', nativeValue: 'Furthermore,', textractValue: '', lineIndex: 45 },
+  { id: 'diff-3', diffType: 'extra_word', nativeValue: '', textractValue: 'teh', lineIndex: 78 },
+  { id: 'diff-4', diffType: 'changed_word', nativeValue: 'configured', textractValue: 'conflgured', lineIndex: 102 },
+  { id: 'diff-5', diffType: 'missing_word', nativeValue: 'API', textractValue: '', lineIndex: 133 },
+];
+
+const MOCK_A2I_TASK_DETAILS: Record<string, A2ITaskDetail> = {
+  'a2i-task-1': {
+    id: 'a2i-task-1',
+    documentId: 'doc-2',
+    pageNumber: 5,
+    status: 'pending',
+    triggerReason: 'accuracy_pct=91.2, textract_conf=94.1',
+    correctionApplied: false,
+    confidenceScore: 94.1,
+    createdAt: '2025-02-22T15:00:00Z',
+    diffItems: MOCK_DIFF_ITEMS,
+    nativeTextSnapshot: 'The initialization of the API requires proper configuration. Furthermore, all endpoints must be configured before the system starts processing requests.',
+    originalTextractText: 'The initiallzation of the API requires proper configuration. all endpoints must be conflgured before the system starts processing requests.',
+  },
+  'a2i-task-2': {
+    id: 'a2i-task-2',
+    documentId: 'doc-2',
+    pageNumber: 12,
+    status: 'under_review',
+    triggerReason: 'table_structure_mismatch',
+    humanLoopName: 'ingestiq-abcd1234-p12-xyz',
+    correctionApplied: false,
+    confidenceScore: 96.5,
+    createdAt: '2025-02-22T15:01:00Z',
+    diffItems: [
+      { id: 'diff-t1', diffType: 'table_mismatch', nativeValue: '3 tables', textractValue: '2 tables', lineIndex: 0 },
+    ],
+    nativeTextSnapshot: 'Table data with three columns: Name, Value, Description.',
+    originalTextractText: 'Table data with two columns: Name, Value.',
+  },
+};
+
+const MOCK_REVIEWER_STATS: ReviewerStats = {
+  reviewerId: 'current-user',
+  totalAssigned: 5,
+  completed: 3,
+  pending: 2,
+  correctionsApplied: 2,
+  acceptanceRate: 33.3,
+};
+
+export async function fetchAllA2ITasks(params?: {
+  status?: string;
+  reviewerId?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<A2ITask[]> {
+  await delay(200);
+  let tasks = [...MOCK_A2I_TASKS];
+  if (params?.status) tasks = tasks.filter((t) => t.status === params.status);
+  if (params?.reviewerId) tasks = tasks.filter((t) => t.assignedTo === params.reviewerId);
+  const offset = params?.offset ?? 0;
+  const limit = params?.limit ?? 50;
+  return tasks.slice(offset, offset + limit);
+}
+
+export async function fetchA2ITaskDetail(taskId: string): Promise<A2ITaskDetail | null> {
+  await delay(150);
+  return MOCK_A2I_TASK_DETAILS[taskId] ?? null;
+}
+
+export async function assignA2ITask(taskId: string, reviewerId: string): Promise<A2ITask> {
+  await delay(200);
+  const task = MOCK_A2I_TASKS.find((t) => t.id === taskId);
+  if (!task) throw new Error('Task not found');
+  task.assignedTo = reviewerId;
+  task.assignedAt = new Date().toISOString();
+  if (task.status === 'pending') task.status = 'assigned';
+  return { ...task };
+}
+
+export async function fetchReviewerStats(_reviewerId: string): Promise<ReviewerStats> {
+  await delay(150);
+  return { ...MOCK_REVIEWER_STATS };
 }
 
 export async function cancelDocumentJob(documentId: string): Promise<DocumentSummary> {

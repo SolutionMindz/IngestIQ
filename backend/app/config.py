@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://sanjeev@127.0.0.1/Textract"
     upload_dir: str = "uploads"
     parser_version: str = "1.0.0"
-    screenshot_dpi: int = 300
+    screenshot_dpi: int = 400
 
     # AWS (optional for Textract)
     aws_access_key_id: str | None = None
@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-1"
     # S3 bucket for multi-page Textract (async API requires S3)
     aws_s3_bucket: str | None = None
+
+    # Amazon A2I (Augmented AI) — optional human-in-the-loop review
+    a2i_flow_definition_arn: str | None = None   # If unset, tasks are created in 'pending' (manual) mode
+    a2i_s3_output_bucket: str = "ingestiq-human-review"
+    a2i_confidence_threshold: float = 97.0       # Textract confidence % below which A2I triggers
+    a2i_accuracy_threshold: float = 98.0         # Page accuracy % below which A2I triggers
 
     class Config:
         env_file = ".env"

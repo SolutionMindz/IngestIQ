@@ -1,4 +1,11 @@
-export type ValidationItemStatus = 'pending' | 'approved' | 'rejected';
+export type ValidationItemStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'pending_review'
+  | 'under_review'
+  | 'human_verified'
+  | 'auto_verified';
 
 export interface ValidationComment {
   id: string;

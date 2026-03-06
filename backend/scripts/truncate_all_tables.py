@@ -25,6 +25,7 @@ from app.models import (  # noqa: F401 - load all models so tables are registere
     validation,
     audit,
     page_validation,
+    a2i,
 )
 
 
@@ -40,14 +41,8 @@ def main():
         return
     print("Tables to truncate:", table_names)
     with engine.connect() as conn:
-        if "sqlite" in url.lower():
-            conn.execute(text("PRAGMA foreign_keys = OFF"))
-            for t in table_names:
-                conn.execute(text(f'DELETE FROM "{t}"'))
-            conn.execute(text("PRAGMA foreign_keys = ON"))
-        else:
-            quoted = ", ".join(f'"{t}"' for t in table_names)
-            conn.execute(text(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE"))
+        quoted = ", ".join(f'"{t}"' for t in table_names)
+        conn.execute(text(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE"))
         conn.commit()
     print("Done. All tables truncated.")
 

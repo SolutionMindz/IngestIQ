@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, DateTime, ForeignKey, JSON
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -12,13 +13,13 @@ def uuid_str():
 class Extraction(Base):
     __tablename__ = "extractions"
 
-    id = Column(String(36), primary_key=True, default=uuid_str)
-    document_id = Column(String(36), ForeignKey("documents.id"), nullable=False)
-    source = Column(String(16), nullable=False)  # docx | pdf | textract
+    id = Column(UUID(as_uuid=False), primary_key=True, default=uuid_str)
+    document_id = Column(UUID(as_uuid=False), ForeignKey("documents.id"), nullable=False)
+    source = Column(String(16), nullable=False)  # docx | pdf | ocr | textract
     structure = Column(JSON, nullable=False)
     parser_version = Column(String(32), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    textract_job_id = Column(String(256), nullable=True)  # AWS Textract job ID when async
-    metadata_ = Column("metadata", JSON, nullable=True)  # confidence scores, geometry, etc.
+    textract_job_id = Column(String(256), nullable=True)
+    metadata_ = Column("metadata", JSON, nullable=True)
 
     document = relationship("Document", back_populates="extractions")

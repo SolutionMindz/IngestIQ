@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, DateTime, ForeignKey, Float
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -12,8 +13,8 @@ def uuid_str():
 class ValidationItem(Base):
     __tablename__ = "validation_items"
 
-    id = Column(String(36), primary_key=True, default=uuid_str)
-    document_id = Column(String(36), ForeignKey("documents.id"), nullable=False)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=uuid_str)
+    document_id = Column(UUID(as_uuid=False), ForeignKey("documents.id"), nullable=False)
     confidence = Column(Float, nullable=False)
     conflict_reason = Column(String(2048), nullable=False)
     status = Column(String(32), default="pending")  # pending | approved | rejected
@@ -27,8 +28,8 @@ class ValidationItem(Base):
 class ValidationComment(Base):
     __tablename__ = "validation_comments"
 
-    id = Column(String(36), primary_key=True, default=uuid_str)
-    validation_item_id = Column(String(36), ForeignKey("validation_items.id"), nullable=False)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=uuid_str)
+    validation_item_id = Column(UUID(as_uuid=False), ForeignKey("validation_items.id"), nullable=False)
     author = Column(String(256), nullable=False)
     text = Column(String(4096), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)

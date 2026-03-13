@@ -31,9 +31,7 @@ def write_canonical(db: Session, document_id: str) -> Path | None:
         return None
     if doc.validation_status != "training_approved":
         return None  # Gate: do not write canonical for unapproved documents
-    ext = db.query(Extraction).filter(Extraction.document_id == document_id, Extraction.source == "docx").first()
-    if not ext:
-        ext = db.query(Extraction).filter(Extraction.document_id == document_id, Extraction.source == "pdf").first()
+    ext = db.query(Extraction).filter(Extraction.document_id == document_id, Extraction.source == "pdf").first()
     if not ext:
         return None
     upload_path = get_settings().get_upload_path()

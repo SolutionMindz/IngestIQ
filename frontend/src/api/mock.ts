@@ -39,10 +39,10 @@ const MOCK_VERSIONS: DocumentVersion[] = [
   { documentId: 'doc-2', version: '2.0', name: 'API Design Guide.pdf', createdAt: '2025-02-15T11:00:00Z' },
 ];
 
-const createMockStructure = (documentId: string, source: 'docx' | 'pdf' | 'ocr' | 'textract', hasMismatch = false): DocumentStructure => ({
+const createMockStructure = (documentId: string, source: 'pdf' | 'ocr' | 'textract', hasMismatch = false): DocumentStructure => ({
   documentId,
   source,
-  totalWordCount: source === 'docx' ? 12500 : hasMismatch ? 12480 : 12500,
+  totalWordCount: hasMismatch ? 12480 : 12500,
   pageCount: 45,
   chapters: [
     {
@@ -191,7 +191,7 @@ export async function fetchVersionHistory(documentId: string): Promise<DocumentV
   );
 }
 
-export async function fetchStructure(documentId: string, source: 'docx' | 'pdf' | 'ocr' | 'textract'): Promise<DocumentStructure | null> {
+export async function fetchStructure(documentId: string, source: 'pdf' | 'ocr' | 'textract'): Promise<DocumentStructure | null> {
   await delay(350);
   const hasMismatch = documentId === 'doc-2' && (source === 'pdf' || source === 'ocr' || source === 'textract');
   return createMockStructure(documentId, source, hasMismatch);

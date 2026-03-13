@@ -71,7 +71,7 @@ export default function DiffViewer({ diffItems, onAction }: DiffViewerProps) {
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 w-20">Type</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Native PDF</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">PaddleOCR</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Textract</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 w-56">Actions</th>
             </tr>
@@ -134,7 +134,7 @@ export default function DiffViewer({ diffItems, onAction }: DiffViewerProps) {
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-green-600 font-medium">
                           {item.action === 'accepted_textract' && '✓ Textract'}
-                          {item.action === 'accepted_native' && '✓ Native'}
+                          {item.action === 'accepted_native' && '✓ PaddleOCR'}
                           {item.action === 'edited' && '✓ Edited'}
                           {item.action === 'rejected' && '✗ Rejected'}
                         </span>
@@ -172,9 +172,9 @@ export default function DiffViewer({ diffItems, onAction }: DiffViewerProps) {
                         <button
                           onClick={() => onAction(item.id, 'accepted_native')}
                           className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded hover:bg-green-200"
-                          title="Use Native PDF value"
+                          title="Use PaddleOCR value"
                         >
-                          Native
+                          PaddleOCR
                         </button>
                         <button
                           onClick={() => startEdit(item)}

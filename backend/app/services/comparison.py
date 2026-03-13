@@ -13,16 +13,14 @@ def run_comparison(db: Session, document_id: str) -> ComparisonResult | None:
     doc = db.query(Document).filter(Document.id == document_id).first()
     if not doc:
         return None
-    docx_ext = db.query(Extraction).filter(Extraction.document_id == document_id, Extraction.source == "docx").first()
-    pdf_ext = db.query(Extraction).filter(Extraction.document_id == document_id, Extraction.source == "pdf").first()
-    textract_ext = db.query(Extraction).filter(Extraction.document_id == document_id, Extraction.source == "textract").first()
+    exts = db.query(Extraction).filter(
+        Extraction.document_id == document_id,
+        Extraction.source.in_(["pdf", "textract"]),
+    ).all()
+    pdf_ext = next((e for e in exts if e.source == "pdf"), None)
+    textract_ext = next((e for e in exts if e.source == "textract"), None)
 
-    # Prefer docx vs pdf when both exist; else compare pdf vs textract for PDF-only docs
-    if docx_ext and pdf_ext:
-        left_struct = DocumentStructure(**docx_ext.structure)
-        right_struct = DocumentStructure(**pdf_ext.structure)
-        left_label, right_label = "docx", "pdf"
-    elif pdf_ext and textract_ext:
+    if pdf_ext and textract_ext:
         left_struct = DocumentStructure(**pdf_ext.structure)
         right_struct = DocumentStructure(**textract_ext.structure)
         left_label, right_label = "pdf", "textract"
@@ -70,8 +68,8 @@ def compare_structures(
     document_id: str,
     left: DocumentStructure,
     right: DocumentStructure,
-    left_label: str = "docx",
-    right_label: str = "pdf",
+    left_label: str = "pdf",
+    right_label: str = "textract",
 ) -> ComparisonResult:
     mismatches: list[Mismatch] = []
     mid = 0

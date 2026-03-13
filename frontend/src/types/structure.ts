@@ -1,4 +1,4 @@
-export type ContentBlockType = 'text' | 'code' | 'table' | 'image';
+export type ContentBlockType = 'text' | 'code' | 'table' | 'image' | 'title' | 'paragraph' | 'list_item' | 'formula' | 'code_block';
 
 export interface BoundingBox {
   left: number;
@@ -36,7 +36,7 @@ export interface Chapter {
 
 export interface DocumentStructure {
   documentId: string;
-  source: 'docx' | 'pdf' | 'ocr' | 'textract';
+  source: 'pdf' | 'ocr' | 'textract';
   chapters: Chapter[];
   totalWordCount?: number;
   pageCount?: number;

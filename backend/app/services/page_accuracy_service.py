@@ -13,6 +13,8 @@ from app.models.extraction import Extraction
 from app.models.page_validation import PageScreenshot, PageAccuracy
 from app.models.audit import AuditLog
 from app.config import get_settings
+from app.services.page_type_detector import classify as classify_page_type
+from app.services.ocr_router import get_page_text
 
 logger = logging.getLogger(__name__)
 
@@ -39,23 +41,84 @@ def _normalize(text: str) -> str:
 
 
 def _word_tokens(text: str) -> list[str]:
-    return _normalize(text).split()
+    t = _normalize(text)
+    # Normalize typographic apostrophes/quotes to ASCII (fixes who\u2019s vs who's mismatches)
+    t = t.translate(str.maketrans("\u2018\u2019\u02bc\u02bb", "''''"))
+    # Normalize URLs FIRST (before :// gets stripped by the non-alnum run removal below)
+    t = re.sub(r"(?:https?://|www\.)\S+", "url", t)
+    # Remove runs of 3+ non-alphanumeric chars (dashes, dots, OCR-garbled decorations)
+    t = re.sub(r"[^a-z0-9 ']{3,}", " ", t)
+    tokens = []
+    for w in t.split():
+        # Strip leading/trailing punctuation
+        w = re.sub(r"^[^a-z0-9]+|[^a-z0-9]+$", "", w)
+        if len(w) < 2 or not re.search(r"[a-z]", w):  # require length ≥ 2 and at least one letter
+            continue
+        # Filter OCR noise: tokens where >70% is the same character (e.g. "ee", "nnn", "nnennn")
+        if max(w.count(c) for c in set(w)) / len(w) > 0.7:
+            continue
+        # Filter OCR garbage: real words don't exceed 25 characters (dotted leader lines OCR'd as long strings)
+        if len(w) > 25:
+            continue
+        tokens.append(w)
+    return tokens
+
+
+def _soft_match(token: str, nospace_text: str) -> bool:
+    """
+    Substring match after stripping non-alphanumeric from token.
+    Handles merged OCR words ('ATestDocument' → 'atestdocument')
+    and code tokens with symbols ('n_neighbors=15' → 'nneighbors15').
+    """
+    if len(token) < 5:
+        return False
+    stripped = re.sub(r"[^a-z0-9]", "", token)
+    return bool(stripped) and stripped in nospace_text
 
 
 def _word_match_pct(reference: str, extracted: str) -> float:
-    """Ratio of matching words (intersection / reference word count); 0-100."""
+    """
+    Bidirectional word match — max(OCR→PDF, PDF→OCR) with soft merge matching.
+    Taking the max prevents noise OCR tokens (e.g. 'wenn', diagram fragments)
+    from deflating the score when the PDF content was correctly extracted.
+    """
     ref_words = _word_tokens(reference)
     ext_words = set(_word_tokens(extracted))
     if not ref_words:
         return 100.0
-    matches = sum(1 for w in ref_words if w in ext_words)
-    return 100.0 * matches / len(ref_words)
+
+    ext_nospace = re.sub(r"[^a-z0-9]", "", _normalize(extracted))
+    ocr_nospace = re.sub(r"[^a-z0-9]", "", _normalize(reference))
+
+    # Forward: for each OCR token, find it in PDF
+    fwd = sum(
+        1.0 if w in ext_words else (0.9 if _soft_match(w, ext_nospace) else 0.0)
+        for w in ref_words
+    )
+    fwd_pct = fwd / len(ref_words) * 100.0
+
+    # Reverse: for each PDF token, find it in OCR
+    rev_words = _word_tokens(extracted)
+    if not rev_words:
+        return min(100.0, fwd_pct)
+    ocr_set = set(ref_words)
+    rev = sum(
+        1.0 if w in ocr_set else (0.9 if _soft_match(w, ocr_nospace) else 0.0)
+        for w in rev_words
+    )
+    rev_pct = rev / len(rev_words) * 100.0
+
+    return min(100.0, max(fwd_pct, rev_pct))
 
 
 def _char_match_pct(reference: str, extracted: str) -> float:
-    """Character-level similarity: 100 * (2 * common / (len(ref) + len(ext)))."""
-    ref = _normalize(reference)
-    ext = _normalize(extracted)
+    """
+    Character-level Jaccard similarity on alphanumeric characters only.
+    Strips non-alphanumeric so Unicode math/Greek symbols in the PDF
+    (e.g. 𝛼, 𝛽, ∫, ±) don't inflate the union when OCR produces only ASCII.
+    """
+    ref = re.sub(r"[^a-z0-9]", "", _normalize(reference))
+    ext = re.sub(r"[^a-z0-9]", "", _normalize(extracted))
     if not ref and not ext:
         return 100.0
     if not ref or not ext:
@@ -81,18 +144,11 @@ def _get_page_text_from_structure(structure: dict, page_number: int) -> str:
 
 def compute_page_accuracy(db: Session, document_id: str, upload_dir: Path) -> None:
     """
-    For each page screenshot: OCR image, get PDF/Textract extracted text for that page,
-    compute word_match, char_match, structural_match; persist to page_accuracy.
+    For each page screenshot: detect page type, route to best OCR tool, compare with
+    extracted text, compute word_match + char_match + structural_match; persist to page_accuracy.
     Set document validation_status = validation_failed if any page < 98%;
     add audit CRITICAL_MISMATCH for any page < 80%.
     """
-    try:
-        import pytesseract
-        from PIL import Image
-    except ImportError as e:
-        logger.warning("page_accuracy skipped (pytesseract/PIL not available): %s", e)
-        return
-
     screenshots = (
         db.query(PageScreenshot)
         .filter(PageScreenshot.document_id == document_id)
@@ -102,32 +158,35 @@ def compute_page_accuracy(db: Session, document_id: str, upload_dir: Path) -> No
     if not screenshots:
         return
 
-    pdf_ext = db.query(Extraction).filter(
+    exts = db.query(Extraction).filter(
         Extraction.document_id == document_id,
-        Extraction.source == "pdf",
-    ).first()
-    textract_ext = db.query(Extraction).filter(
-        Extraction.document_id == document_id,
-        Extraction.source == "textract",
-    ).first()
-    pdf_structure = pdf_ext.structure if pdf_ext else {}
-    textract_structure = textract_ext.structure if textract_ext else {}
+        Extraction.source.in_(["pdf", "textract"]),
+    ).all()
+    pdf_structure = next((e.structure for e in exts if e.source == "pdf"), {})
+    textract_structure = next((e.structure for e in exts if e.source == "textract"), {})
 
+    settings = get_settings()
     doc = db.query(Document).filter(Document.id == document_id).first()
     validation_failed = False
     critical_pages: list[int] = []
+    _FLUSH_EVERY = 20
 
-    for ps in screenshots:
+    for i, ps in enumerate(screenshots):
         page_num = ps.page_number
         img_path = upload_dir / ps.file_path
         if not img_path.exists():
             logger.warning("Screenshot not found for page %s: %s", page_num, img_path)
             continue
+        # Detect page type (fast path from structure; screenshot fallback if structure absent)
+        page_type = classify_page_type(
+            pdf_structure, page_num, img_path,
+            use_pp_structure=getattr(settings, "use_pp_structure", False),
+        )
+        # Route to best available OCR tool for this page type
         try:
-            img = Image.open(img_path)
-            ocr_text = pytesseract.image_to_string(img)
+            ocr_text = get_page_text(img_path, page_type, settings)
         except Exception as e:
-            logger.warning("OCR failed for page %s: %s", page_num, e)
+            logger.warning("OCR routing failed for page %s: %s", page_num, e)
             ocr_text = ""
         pdf_text = _get_page_text_from_structure(pdf_structure, page_num)
         textract_text = _get_page_text_from_structure(textract_structure, page_num)
@@ -153,6 +212,8 @@ def compute_page_accuracy(db: Session, document_id: str, upload_dir: Path) -> No
             validation_failed = True
         if accuracy_pct < CRITICAL_MISMATCH_PCT:
             critical_pages.append(page_num)
+        if (i + 1) % _FLUSH_EVERY == 0:
+            db.flush()  # release DB memory periodically; final commit below
 
     db.commit()
 

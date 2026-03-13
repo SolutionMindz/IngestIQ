@@ -52,8 +52,8 @@ def upload_document(
     if not file.filename:
         raise HTTPException(400, "No filename")
     ext = Path(file.filename).suffix.lower()
-    if ext not in (".docx", ".pdf"):
-        raise HTTPException(400, "Only .docx and .pdf are allowed")
+    if ext != ".pdf":
+        raise HTTPException(400, "Only .pdf is allowed")
     doc_id = str(uuid.uuid4())
     settings = get_settings()
     upload_path = settings.get_upload_path()
@@ -224,6 +224,15 @@ def get_screenshot(
     return FileResponse(full_path, media_type="image/png", headers=headers)
 
 
+# --- Page-type classification helpers (shared with page_accuracy_service) ---
+from app.services.page_classifier import (
+    page_blocks as _page_blocks,
+    page_is_formula_heavy as _page_is_formula_heavy,
+    page_has_images as _page_has_images,
+    page_is_sparse as _page_is_sparse,
+)
+
+
 # --- Page accuracy ---
 @router.get("/documents/{document_id}/page-accuracy")
 def get_page_accuracy(document_id: str, db: Session = Depends(get_db)):
@@ -232,14 +241,39 @@ def get_page_accuracy(document_id: str, db: Session = Depends(get_db)):
     if not doc:
         raise HTTPException(404, "Document not found")
     rows = db.query(PageAccuracy).filter(PageAccuracy.document_id == document_id).order_by(PageAccuracy.page_number).all()
+    # Fetch PDF extraction structure once for page-type classification
+    pdf_extraction = db.query(Extraction).filter(
+        Extraction.document_id == document_id,
+        Extraction.source == "pdf",
+    ).first()
+    pdf_structure = (pdf_extraction.structure or {}) if pdf_extraction else {}
+
     result = []
     for r in rows:
-        if r.accuracy_pct >= 98.0:
-            status = "OK"  # Green
+        sparse  = _page_is_sparse(pdf_structure, r.page_number)
+        formula = _page_is_formula_heavy(pdf_structure, r.page_number)
+        has_img = _page_has_images(pdf_structure, r.page_number)
+
+        if sparse:
+            status = "SPARSE"                                          # metric unreliable on near-blank pages
+        elif formula:
+            status = "FORMULA"  # Tesseract can't score Unicode math — low accuracy is expected
+        elif has_img:
+            # Image-aware tiers: high accuracy pages still show OK/WARNING
+            if r.accuracy_pct >= 98.0:
+                status = "OK"
+            elif r.accuracy_pct >= 95.0:
+                status = "WARNING"
+            elif r.accuracy_pct >= 75.0:
+                status = "IMAGE"   # Below threshold: image content Tesseract can't read
+            else:
+                status = "ERROR"   # Genuinely bad accuracy despite image content
+        elif r.accuracy_pct >= 98.0:
+            status = "OK"
         elif r.accuracy_pct >= 95.0:
-            status = "WARNING"  # Yellow (95–97%)
+            status = "WARNING"
         else:
-            status = "ERROR"  # Red (<95%)
+            status = "ERROR"
         result.append({
             "pageNumber": r.page_number,
             "accuracyPct": round(r.accuracy_pct, 2),

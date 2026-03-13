@@ -12,7 +12,7 @@ class BoundingBox(BaseModel):
 
 class ContentBlock(BaseModel):
     id: str
-    type: Literal["text", "code", "table", "image"]
+    type: Literal["text", "code", "table", "image", "title", "paragraph", "list_item", "formula", "code_block"]
     content: str
     orderIndex: int
     wordCount: int | None = None
@@ -39,7 +39,7 @@ class Chapter(BaseModel):
 
 class DocumentStructure(BaseModel):
     documentId: str
-    source: Literal["docx", "pdf", "textract", "ocr"]
+    source: Literal["pdf", "textract", "ocr"]
     chapters: list[Chapter]
     totalWordCount: int | None = None
     pageCount: int | None = None

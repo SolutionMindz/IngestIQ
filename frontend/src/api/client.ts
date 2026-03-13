@@ -7,7 +7,7 @@ import type { A2ITask, A2ITaskDetail, ReviewerStats } from '../types/a2i';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8889';
 
-const REQUEST_TIMEOUT_MS = 15000;
+const REQUEST_TIMEOUT_MS = 30000;
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const controller = new AbortController();
@@ -50,7 +50,7 @@ export async function fetchVersionHistory(documentId: string): Promise<DocumentV
   return request<DocumentVersion[]>(`/api/documents/${documentId}/versions`);
 }
 
-export async function fetchStructure(documentId: string, source: 'docx' | 'pdf' | 'ocr' | 'textract'): Promise<DocumentStructure | null> {
+export async function fetchStructure(documentId: string, source: 'pdf' | 'ocr' | 'textract'): Promise<DocumentStructure | null> {
   const s = await request<DocumentStructure | null>(`/api/documents/${documentId}/structure?source=${source}`);
   return s ?? null;
 }
@@ -124,7 +124,7 @@ export interface PageAccuracyItem {
   wordMatchPct: number | null;
   charMatchPct: number | null;
   structuralMatchPct: number | null;
-  status: 'OK' | 'WARNING' | 'ERROR';
+  status: 'OK' | 'WARNING' | 'ERROR' | 'FORMULA' | 'IMAGE' | 'SPARSE';
 }
 
 export async function fetchPageAccuracy(documentId: string): Promise<PageAccuracyItem[]> {

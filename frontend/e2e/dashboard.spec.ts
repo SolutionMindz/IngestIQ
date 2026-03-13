@@ -16,7 +16,7 @@ test.describe('Dashboard', () => {
     const intakeHeading = page.getByRole('heading', { name: /Document Intake Panel/i });
     await expect(intakeHeading).toBeVisible({ timeout: 15_000 });
     await expect(
-      page.getByText(/Drag & drop .docx or .pdf here/i).first()
+      page.getByText(/Drag & drop .pdf here/i).first()
     ).toBeVisible();
   });
 });

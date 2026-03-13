@@ -18,7 +18,7 @@ def generate_screenshots(
     db: Session, document_id: str, pdf_path: str, upload_dir: Path
 ) -> list[tuple[int, str, str]]:
     """
-    Render each PDF page at 300 DPI (or config DPI), save as PNG, compute checksum, insert into page_screenshots.
+    Render each PDF page at configured DPI (default 150), save as PNG, compute checksum, insert into page_screenshots.
     Returns [(page_number, relative_path, checksum), ...].
     Raises on failure (caller should set document status screenshot_failed).
     """
@@ -41,9 +41,11 @@ def generate_screenshots(
             pix = page.get_pixmap(matrix=matrix, alpha=False)
             rel_path = f"{document_id}/screenshots/page_{page_num + 1}.png"
             out_path = upload_dir / rel_path
-            pix.save(str(out_path))
-            with open(out_path, "rb") as f:
-                checksum = hashlib.sha256(f.read()).hexdigest()
+            png_bytes = pix.tobytes(output="png")
+            del pix  # free pixmap buffer immediately
+            out_path.write_bytes(png_bytes)
+            checksum = hashlib.sha256(png_bytes).hexdigest()
+            del png_bytes  # free encoded bytes after write + hash
             db.add(
                 PageScreenshot(
                     document_id=document_id,

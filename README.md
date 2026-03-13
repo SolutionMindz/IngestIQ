@@ -90,6 +90,14 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8889
 - API docs: http://127.0.0.1:8889/docs  
 - Health: http://127.0.0.1:8889/health  
 
+**Re-extract PaddleOCR only:** To re-run PDF extraction with PaddleOCR for a document (e.g. after fixing 0-word output), use the backend venv (`source .venv/bin/activate`), ensure `paddleocr` is installed (`pip install paddleocr`), then run:
+
+```bash
+cd backend
+python3 scripts/reextract_paddleocr.py [document_id]
+```
+Omit `document_id` to use the first PDF in the database.
+
 ### 3. Frontend setup (admin console)
 
 In a new terminal:

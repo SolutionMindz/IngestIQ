@@ -13,7 +13,7 @@ export default function AuditLogs({ documentId }: AuditLogsProps) {
   const [filterFromDate, setFilterFromDate] = useState<string>('');
   const [filterToDate, setFilterToDate] = useState<string>('');
   const [sortNewestFirst, setSortNewestFirst] = useState(true);
-  const [sectionOpen, setSectionOpen] = useState(true);
+  const [sectionOpen, setSectionOpen] = useState(false);
 
   useEffect(() => {
     setFilterDoc(documentId ?? '');

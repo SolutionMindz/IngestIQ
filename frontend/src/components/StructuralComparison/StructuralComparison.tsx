@@ -1,41 +1,130 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import ReactDiffViewer from 'react-diff-viewer-continued';
-import ReactMarkdown from 'react-markdown';
-import type { DocumentStructure, ContentBlock } from '../../types/structure';
-import type { ComparisonResult, Mismatch } from '../../types/comparison';
+import React, { useState, useEffect } from 'react';
+import type { DocumentStructure, ContentBlock, Chapter } from '../../types/structure';
+import type { ComparisonResult } from '../../types/comparison';
 import type { PageAccuracyItem } from '../../api';
-import { fetchStructure, fetchComparison, fetchPageAccuracy, fetchPageMarkdown, screenshotUrl } from '../../api';
+import { fetchStructure, fetchComparison, fetchPageAccuracy, screenshotUrl } from '../../api';
 
-function getPageText(structure: DocumentStructure, pageNumber: number): string {
-  const ch = structure.chapters.find((c) => c.heading === `Page ${pageNumber}`);
-  if (!ch) return '';
-  return ch.content_blocks.map((b) => b.content).join(' ');
-}
+// --- Shared TypeBadge helpers (mirrors ChapterExplorer) ---
+const BLOCK_TYPE_LABEL: Record<string, string> = {
+  title:      'Heading',
+  paragraph:  'Paragraph',
+  text:       'Paragraph',
+  list_item:  'List',
+  code_block: 'Code',
+  code:       'Code',
+  table:      'Table',
+  formula:    'Formula',
+  image:      'Figure',
+};
+const BADGE_COLOR: Record<string, string> = {
+  title:      'bg-slate-100 text-slate-600',
+  paragraph:  'bg-slate-100 text-slate-600',
+  text:       'bg-slate-100 text-slate-600',
+  list_item:  'bg-blue-50 text-blue-600',
+  code_block: 'bg-slate-100 text-slate-600',
+  code:       'bg-slate-100 text-slate-600',
+  table:      'bg-violet-50 text-violet-600',
+  formula:    'bg-slate-100 text-slate-600',
+  image:      'bg-slate-100 text-slate-600',
+};
 
-interface StructuralComparisonProps {
-  documentId: string | null;
-}
-
-/** Raw text view: render content_blocks as chips (optionally with bbox hint). */
-function RawTextChips({ structure, label }: { structure: DocumentStructure; label: string }) {
+function TypeBadge({ type }: { type: string }) {
+  const label = BLOCK_TYPE_LABEL[type] ?? type;
+  const color = BADGE_COLOR[type] ?? 'bg-slate-100 text-slate-600';
   return (
-    <div className="space-y-3">
-      <div className="text-xs font-semibold text-slate-500 uppercase">{label}</div>
-      <div className="flex flex-col gap-2">
-        {structure.chapters.map((ch) => (
-          <div key={ch.chapter_id} className="space-y-1.5">
-            <div className="text-sm font-medium text-slate-700">{ch.heading}</div>
-            <div className="flex flex-wrap gap-1.5">
-              {ch.content_blocks.map((b: ContentBlock) => (
-                <span
-                  key={b.id}
-                  className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-200 text-slate-800 text-sm"
-                  title={b.bbox ? `bbox: ${b.bbox.left.toFixed(2)}, ${b.bbox.top.toFixed(2)}` : undefined}
-                >
-                  {b.content}
-                </span>
+    <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full ${color}`}>
+      {label}
+    </span>
+  );
+}
+
+function OcrTable({ content }: { content: string }) {
+  const lines = (content ?? '').split('\n').filter((l) => l.trim());
+  const rows = lines.map((line) =>
+    line.replace(/^\||\|$/g, '').split('|').map((c) => c.trim())
+  );
+  const hasCols = rows.length > 0 && rows[0].length > 1;
+  if (!hasCols) {
+    return <pre className="mt-1 text-xs font-mono text-slate-700 whitespace-pre-wrap">{content}</pre>;
+  }
+  const [header, _sep, ...body] = rows;
+  const dataRows = body.length > 0 ? body : rows.slice(1);
+  return (
+    <div className="mt-1 overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        {header && (
+          <thead>
+            <tr>
+              {header.map((cell, i) => (
+                <th key={i} className="text-left px-3 py-2 text-slate-600 font-medium border-b border-slate-200">{cell}</th>
               ))}
-            </div>
+            </tr>
+          </thead>
+        )}
+        <tbody>
+          {dataRows.map((row, ri) => (
+            <tr key={ri} className="border-b border-slate-100 last:border-0">
+              {row.map((cell, ci) => (
+                <td key={ci} className="px-3 py-2 text-slate-700 align-top">{cell}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function renderBlockContent(block: ContentBlock): React.ReactNode {
+  if (block.type === 'title') {
+    return <p className="font-bold text-slate-900 text-lg leading-snug mt-1">{block.content}</p>;
+  }
+  if (block.type === 'list_item') {
+    return (
+      <div className="border-l-2 border-blue-300 pl-3 mt-1">
+        <p className="text-slate-800">{block.content}</p>
+      </div>
+    );
+  }
+  if (block.type === 'code_block' || block.type === 'code') {
+    return (
+      <pre className="mt-1 text-xs font-mono text-slate-800 bg-slate-50 border border-slate-200 rounded p-2 whitespace-pre-wrap overflow-x-auto">
+        {block.content}
+      </pre>
+    );
+  }
+  if (block.type === 'formula') {
+    return <p className="mt-1 text-slate-500 italic">[Formula]</p>;
+  }
+  if (block.type === 'table') {
+    return <OcrTable content={block.content} />;
+  }
+  if (block.type === 'image') {
+    const hasAltText = block.content && block.content !== '[figure]' && block.content !== '[Figure]';
+    return hasAltText
+      ? <p className="mt-1 text-slate-500 italic text-sm">[Figure] {block.content}</p>
+      : <p className="mt-1 text-slate-400 italic">[Figure]</p>;
+  }
+  return <p className="mt-1 text-slate-800 leading-relaxed">{block.content}</p>;
+}
+
+function PageContent({ chapter }: { chapter: Chapter | null }) {
+  if (!chapter) {
+    return <p className="text-slate-400 italic text-sm">No extraction for this page.</p>;
+  }
+  if (chapter.content_blocks.length === 0) {
+    return <p className="text-slate-400 italic text-sm">No content extracted — re-run extraction if this is unexpected.</p>;
+  }
+  return (
+    <div>
+      <div className="text-[10px] font-semibold tracking-widest text-slate-400 uppercase mb-3">
+        Extracted Content
+      </div>
+      <div className="space-y-0">
+        {chapter.content_blocks.map((block: ContentBlock) => (
+          <div key={block.id} className="pb-3 mb-1 border-b border-slate-100 last:border-0">
+            <TypeBadge type={block.type} />
+            {renderBlockContent(block)}
           </div>
         ))}
       </div>
@@ -43,205 +132,62 @@ function RawTextChips({ structure, label }: { structure: DocumentStructure; labe
   );
 }
 
-const FIRST_MISMATCH_HIGHLIGHT_ID = 'first-mismatch-highlight';
-
-function StructureTree({
-  structure,
-  mismatches,
-  side: _side,
-  scrollTargetId,
-}: {
-  structure: DocumentStructure;
-  mismatches: Mismatch[];
-  side: 'docx' | 'pdf';
-  scrollTargetId?: string;
-}) {
-  const mismatchBlockIds = new Set(mismatches.flatMap((m) => (m.blockId ? [m.blockId] : [])));
-  const mismatchChapterIndices = new Set(mismatches.map((m) => m.chapterIndex).filter((i) => i !== undefined) as number[]);
-
-  // First mismatch in document order (for "see highlights" scroll target)
-  let firstMismatchKey: string | null = null;
-  for (let idx = 0; idx < structure.chapters.length; idx++) {
-    if (mismatchChapterIndices.has(idx)) {
-      firstMismatchKey = `chapter-${idx}`;
-      break;
-    }
-    const ch = structure.chapters[idx];
-    for (const b of ch.content_blocks) {
-      if (mismatchBlockIds.has(b.id)) {
-        firstMismatchKey = `block-${b.id}`;
-        break;
-      }
-    }
-    if (firstMismatchKey) break;
-  }
-
+function StatBadge({ label, ok }: { label: string; ok: boolean }) {
   return (
-    <div className="font-mono text-sm">
-      {structure.chapters.map((ch, idx) => {
-        const chapterMismatch = mismatchChapterIndices.has(idx);
-        const isFirstMismatchChapter = scrollTargetId && firstMismatchKey === `chapter-${idx}`;
-        return (
-          <div key={ch.chapter_id} className="mb-3">
-            <div
-              id={isFirstMismatchChapter ? scrollTargetId : undefined}
-              className={`font-semibold py-1 px-2 rounded ${chapterMismatch ? 'bg-amber-200' : 'bg-slate-100'}`}
-            >
-              Ch {idx + 1}: {ch.heading}
-            </div>
-            <ul className="list-none pl-4 mt-1 space-y-1">
-              {ch.content_blocks.map((b) => {
-                const isFirstMismatchBlock = scrollTargetId && firstMismatchKey === `block-${b.id}`;
-                return (
-                  <li
-                    key={b.id}
-                    id={isFirstMismatchBlock ? scrollTargetId : undefined}
-                    className={`py-0.5 px-2 rounded ${mismatchBlockIds.has(b.id) ? 'bg-red-100' : ''}`}
-                  >
-                    [{b.type}] {b.content.slice(0, 50)}{b.content.length > 50 ? '…' : ''}
-                  </li>
-                );
-              })}
-              {ch.sections?.map((sec) => (
-                <li key={sec.id} className="pl-2 border-l-2 border-slate-200 mt-1">
-                  <div className="font-medium text-slate-700">{sec.heading}</div>
-                  {sec.contentBlocks.map((b) => (
-                    <div key={b.id} className="text-slate-600 pl-2">[{b.type}] {b.content.slice(0, 40)}…</div>
-                  ))}
-                </li>
-              ))}
-            </ul>
-          </div>
-        );
-      })}
-    </div>
+    <span className="flex items-center gap-1.5 text-sm text-slate-700">
+      {label}:{' '}
+      <span
+        className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-xs font-bold ${
+          ok ? 'bg-green-500' : 'bg-red-400'
+        }`}
+      >
+        {ok ? '✓' : '✗'}
+      </span>
+    </span>
   );
 }
 
+function getChapterForPage(structure: DocumentStructure | null, page: number): Chapter | null {
+  return structure?.chapters.find((c) => c.heading === `Page ${page}`) ?? null;
+}
+
+interface StructuralComparisonProps {
+  documentId: string | null;
+}
+
 export default function StructuralComparison({ documentId }: StructuralComparisonProps) {
-  const [docx, setDocx] = useState<DocumentStructure | null>(null);
   const [pdf, setPdf] = useState<DocumentStructure | null>(null);
-  const [textract, setTextract] = useState<DocumentStructure | null>(null);
   const [comparison, setComparison] = useState<ComparisonResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [viewMode, setViewMode] = useState<'tree' | 'raw'>('tree');
-  const [selectedPage, setSelectedPage] = useState<number | null>(null);
   const [pageAccuracyList, setPageAccuracyList] = useState<PageAccuracyItem[]>([]);
-  const [diffSelection, setDiffSelection] = useState<{ chapterIndex: number } | null>(null);
-  const [chapterPage, setChapterPage] = useState(0); // pagination for chapter buttons
-  const [syncScroll, setSyncScroll] = useState(false);
-  const [pagePreviewMarkdown, setPagePreviewMarkdown] = useState(false);
-  const [leftPageMarkdown, setLeftPageMarkdown] = useState<string | null>(null);
-  const [rightPageMarkdown, setRightPageMarkdown] = useState<string | null>(null);
-
-  const CHAPTERS_PER_PAGE = 10;
-  const leftColRef = useRef<HTMLDivElement>(null);
-  const rightColRef = useRef<HTMLDivElement>(null);
-  const syncingRef = useRef(false);
-
-  const handleScroll = useCallback(
-    (source: 'left' | 'right') => {
-      if (!syncScroll || syncingRef.current) return;
-      const sourceEl = source === 'left' ? leftColRef.current : rightColRef.current;
-      const targetEl = source === 'left' ? rightColRef.current : leftColRef.current;
-      if (!sourceEl || !targetEl) return;
-      const { scrollTop, scrollHeight, clientHeight } = sourceEl;
-      const maxScroll = scrollHeight - clientHeight;
-      if (maxScroll <= 0) return;
-      const ratio = scrollTop / maxScroll;
-      syncingRef.current = true;
-      const targetMax = targetEl.scrollHeight - targetEl.clientHeight;
-      targetEl.scrollTop = ratio * targetMax;
-      requestAnimationFrame(() => {
-        syncingRef.current = false;
-      });
-    },
-    [syncScroll]
-  );
+  const [loading, setLoading] = useState(false);
+  const [selectedPage, setSelectedPage] = useState<number>(1);
 
   useEffect(() => {
     if (!documentId) {
-      setDocx(null);
       setPdf(null);
-      setTextract(null);
       setComparison(null);
       setPageAccuracyList([]);
-      setSelectedPage(null);
-      setLeftPageMarkdown(null);
-      setRightPageMarkdown(null);
+      setSelectedPage(1);
       return;
     }
     setLoading(true);
     Promise.all([
-      fetchStructure(documentId, 'docx'),
       fetchStructure(documentId, 'pdf'),
-      fetchStructure(documentId, 'textract'),
       fetchComparison(documentId),
       fetchPageAccuracy(documentId).catch(() => []),
-    ]).then(([d, p, t, c, acc]) => {
-      setDocx(d ?? null);
+    ]).then(([p, c, acc]) => {
       setPdf(p ?? null);
-      setTextract(t ?? null);
       setComparison(c ?? null);
       setPageAccuracyList(Array.isArray(acc) ? acc : []);
       setLoading(false);
     });
   }, [documentId]);
 
-  // Resolve left/right labels for markdown source (depends on docx, pdf, textract)
-  const leftIsPdf = !docx && !!pdf;
-  const rightIsPdf = !!docx && !!pdf;
-  const rightIsTextract = !docx && !!textract;
-
-  useEffect(() => {
-    if (!pagePreviewMarkdown || !documentId || selectedPage == null) {
-      setLeftPageMarkdown(null);
-      setRightPageMarkdown(null);
-      return;
-    }
-    let cancelled = false;
-    const fetches: Promise<void>[] = [];
-    if (leftIsPdf) {
-      fetches.push(
-        fetchPageMarkdown(documentId, selectedPage, 'pdf').then((r) => {
-          if (!cancelled && r) setLeftPageMarkdown(r.markdown);
-          else if (!cancelled) setLeftPageMarkdown(null);
-        }).catch(() => {
-          if (!cancelled) setLeftPageMarkdown(null);
-        })
-      );
-    } else {
-      setLeftPageMarkdown(null);
-    }
-    if (rightIsTextract) {
-      fetches.push(
-        fetchPageMarkdown(documentId, selectedPage, 'textract').then((r) => {
-          if (!cancelled && r) setRightPageMarkdown(r.markdown);
-          else if (!cancelled) setRightPageMarkdown(null);
-        }).catch(() => {
-          if (!cancelled) setRightPageMarkdown(null);
-        })
-      );
-    } else if (rightIsPdf) {
-      fetches.push(
-        fetchPageMarkdown(documentId, selectedPage, 'pdf').then((r) => {
-          if (!cancelled && r) setRightPageMarkdown(r.markdown);
-          else if (!cancelled) setRightPageMarkdown(null);
-        }).catch(() => {
-          if (!cancelled) setRightPageMarkdown(null);
-        })
-      );
-    } else {
-      setRightPageMarkdown(null);
-    }
-    return () => { cancelled = true; };
-  }, [documentId, selectedPage, pagePreviewMarkdown, leftIsPdf, rightIsPdf, rightIsTextract]);
-
   if (!documentId) {
     return (
       <section className="bg-white rounded-lg shadow p-4 sm:p-6">
         <h2 className="text-lg font-semibold text-slate-800 mb-4">2. Structural Comparison Viewer</h2>
-        <p className="text-slate-500">Select a document to compare DOCX vs PDF, or PDF vs AWS Textract.</p>
+        <p className="text-slate-500">Select a document to view extracted structure.</p>
       </section>
     );
   }
@@ -257,282 +203,97 @@ export default function StructuralComparison({ documentId }: StructuralCompariso
     );
   }
 
-  // Side-by-side: DOCX vs PDF when both exist; else PDF vs Textract for PDF-only docs
-  const left = docx && pdf ? docx : pdf;
-  const right = docx && pdf ? pdf : textract;
-  const leftLabel = docx && pdf ? 'DOCX' : 'PDF';
-  const rightLabel = docx && pdf ? 'PDF' : 'Textract';
-  const mismatches = comparison?.mismatches ?? [];
-  const pageCount = left?.pageCount ?? left?.chapters?.length ?? right?.chapters?.length ?? 0;
-  const selectedPageAccuracy = selectedPage != null ? pageAccuracyList.find((a) => a.pageNumber === selectedPage) : null;
+  const pageCount = pdf?.pageCount ?? pdf?.chapters?.length ?? 0;
+  const chapter = getChapterForPage(pdf, selectedPage);
+  const selectedAccuracy = pageAccuracyList.find((a) => a.pageNumber === selectedPage);
 
   return (
     <section className="bg-white rounded-lg shadow p-4 sm:p-6 min-w-0">
       <h2 className="text-lg font-semibold text-slate-800 mb-4">2. Structural Comparison Viewer</h2>
-      <div className="mb-4 p-3 bg-slate-100 rounded flex flex-wrap gap-3 sm:gap-4 text-sm items-center">
-        {comparison && (
-          <>
-            <span>Chapters: {comparison.chapterCountMatch ? '✓' : '✗'}</span>
-            <span>Headings: {comparison.headingMatch ? '✓' : '✗'}</span>
-            <span>Word count: {comparison.wordCountMatch ? '✓' : '✗'} ({comparison.docxWordCount} vs {comparison.pdfWordCount})</span>
-            <span className="text-slate-500">({leftLabel} vs {rightLabel})</span>
-            {mismatches.length > 0 && (
-              <span className="text-amber-700 font-medium">
-                {mismatches.length} mismatch{mismatches.length === 1 ? '' : 'es'} —{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setViewMode('tree');
-                    requestAnimationFrame(() => {
-                      setTimeout(() => {
-                        document.getElementById(FIRST_MISMATCH_HIGHLIGHT_ID)?.scrollIntoView({
-                          behavior: 'smooth',
-                          block: 'center',
-                        });
-                      }, 100);
-                    });
-                  }}
-                  className="underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-1 rounded"
-                >
-                  see highlights
-                </button>
-              </span>
-            )}
-          </>
-        )}
-        {(left || right) && (
-          <div className="flex items-center gap-2 ml-auto">
-            <span className="text-slate-600 text-xs uppercase font-medium">View:</span>
-            <button
-              type="button"
-              onClick={() => setViewMode('tree')}
-              className={`px-2 py-1 rounded text-sm ${viewMode === 'tree' ? 'bg-slate-700 text-white' : 'bg-slate-200 hover:bg-slate-300'}`}
-            >
-              Tree
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('raw')}
-              className={`px-2 py-1 rounded text-sm ${viewMode === 'raw' ? 'bg-slate-700 text-white' : 'bg-slate-200 hover:bg-slate-300'}`}
-            >
-              Raw text
-            </button>
-          </div>
-        )}
-        {viewMode === 'tree' && comparison && (
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={syncScroll}
-              onChange={(e) => setSyncScroll(e.target.checked)}
-              className="rounded border-slate-300"
-            />
-            <span className="text-slate-600">Sync scroll</span>
-          </label>
-        )}
-      </div>
-      {viewMode === 'raw' && pageCount > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-3 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg">
-          <div className="flex items-center gap-2">
-            <label htmlFor="struct-select-page" className="text-sm font-medium text-slate-700 whitespace-nowrap">
-              Select page:
-            </label>
-            <select
-              id="struct-select-page"
-              value={selectedPage ?? ''}
-              onChange={(e) => setSelectedPage(e.target.value ? Number(e.target.value) : null)}
-              className="rounded border border-slate-300 px-3 py-1.5 text-sm bg-white min-w-[4rem]"
-            >
-              <option value="">—</option>
-              {Array.from({ length: pageCount }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
-          </div>
-          {selectedPage != null && (
-            <>
-              <span className="hidden sm:inline w-px h-5 bg-slate-200" aria-hidden />
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={pagePreviewMarkdown}
-                  onChange={(e) => setPagePreviewMarkdown(e.target.checked)}
-                  className="rounded border-slate-300 text-slate-700"
-                />
-                <span className="text-sm text-slate-700">Preview as Markdown</span>
-              </label>
-            </>
+
+      {/* Stats bar */}
+      {comparison && (
+        <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-lg flex flex-wrap gap-4 items-center">
+          <StatBadge label="Chapters" ok={comparison.chapterCountMatch} />
+          <StatBadge label="Headings" ok={comparison.headingMatch} />
+          <StatBadge label="Word count" ok={comparison.wordCountMatch} />
+          {comparison.docxWordCount != null && (
+            <span className="text-xs text-slate-500 ml-auto">
+              {comparison.docxWordCount} words (PDF) vs {comparison.pdfWordCount} words (OCR)
+            </span>
           )}
         </div>
       )}
 
-      {viewMode === 'raw' && selectedPage != null && left && right && documentId ? (
-        <div className="mb-4 border border-slate-200 rounded overflow-hidden">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-slate-50 md:items-stretch">
-            <div className="flex flex-col min-h-[320px] md:min-h-0">
-              <div className="text-xs font-semibold text-slate-500 uppercase mb-2 shrink-0">Screenshot</div>
-              <div className="flex-1 min-h-0 overflow-auto flex justify-center bg-white rounded border border-slate-200">
+      {/* Page selector */}
+      {pageCount > 0 && (
+        <div className="mb-4 flex items-center gap-3">
+          <label htmlFor="sc-select-page" className="text-sm font-medium text-slate-700 whitespace-nowrap">
+            Select page:
+          </label>
+          <select
+            id="sc-select-page"
+            value={selectedPage}
+            onChange={(e) => setSelectedPage(Number(e.target.value))}
+            className="rounded border border-slate-300 px-3 py-1.5 text-sm bg-white min-w-[4rem]"
+          >
+            {Array.from({ length: pageCount }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+          {selectedAccuracy != null && (
+            <span className="text-xs text-slate-500">
+              Page accuracy:{' '}
+              <span className={
+                selectedAccuracy.status === 'OK' ? 'text-green-600 font-medium' :
+                selectedAccuracy.status === 'WARNING' ? 'text-amber-600 font-medium' :
+                selectedAccuracy.status === 'FORMULA' ? 'text-blue-600 font-medium' :
+                selectedAccuracy.status === 'IMAGE' ? 'text-purple-600 font-medium' :
+                selectedAccuracy.status === 'SPARSE' ? 'text-gray-500 font-medium' :
+                'text-red-600 font-medium'
+              }>
+                {selectedAccuracy.accuracyPct.toFixed(1)}%
+              </span>
+              {selectedAccuracy.status === 'FORMULA' && <span className="ml-1 italic">(formula page)</span>}
+              {selectedAccuracy.status === 'IMAGE' && <span className="ml-1 italic">(image page)</span>}
+              {selectedAccuracy.status === 'SPARSE' && <span className="ml-1 italic">(sparse page)</span>}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Main 2-column view: screenshot + extracted content */}
+      {pageCount > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border border-slate-200 rounded-lg overflow-hidden">
+          {/* Left: PDF screenshot */}
+          <div className="flex flex-col border-r border-slate-200">
+            <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50">
+              <span className="text-[10px] font-semibold tracking-widest text-slate-400 uppercase">Screenshot</span>
+            </div>
+            <div className="flex-1 overflow-auto max-h-[600px] flex justify-center bg-white p-2">
+              {documentId && (
                 <img
                   src={screenshotUrl(documentId, selectedPage)}
                   alt={`Page ${selectedPage}`}
-                  className="max-w-full max-h-full object-contain"
+                  className="max-w-full object-contain"
                 />
-              </div>
-            </div>
-            <div className="flex flex-col min-h-[320px] md:min-h-0">
-              <div className="text-xs font-semibold text-slate-500 uppercase mb-2 shrink-0">
-                {pagePreviewMarkdown && leftPageMarkdown != null ? `${leftLabel} markdown` : `${leftLabel} raw text`}
-              </div>
-              <div className="flex-1 min-h-0 overflow-auto text-sm text-slate-800 break-words p-2 bg-white rounded border border-slate-200 [&_table]:border [&_table]:border-slate-300 [&_th]:border [&_th]:border-slate-300 [&_td]:border [&_td]:border-slate-300 [&_th]:px-2 [&_td]:px-2">
-                {pagePreviewMarkdown && leftIsPdf ? (
-                  leftPageMarkdown != null ? (
-                    <ReactMarkdown>{leftPageMarkdown}</ReactMarkdown>
-                  ) : (
-                    <span className="text-slate-500">Loading markdown…</span>
-                  )
-                ) : (
-                  <span className="whitespace-pre-wrap">{getPageText(left, selectedPage) || '(no text)'}</span>
-                )}
-              </div>
-            </div>
-            <div className="flex flex-col min-h-[320px] md:min-h-0">
-              <div className="text-xs font-semibold text-slate-500 uppercase mb-2 shrink-0">
-                {pagePreviewMarkdown && rightPageMarkdown != null ? `${rightLabel} markdown` : `${rightLabel} raw text`}
-              </div>
-              <div className="flex-1 min-h-0 overflow-auto text-sm text-slate-800 break-words p-2 bg-white rounded border border-slate-200 [&_table]:border [&_table]:border-slate-300 [&_th]:border [&_th]:border-slate-300 [&_td]:border [&_td]:border-slate-300 [&_th]:px-2 [&_td]:px-2">
-                {pagePreviewMarkdown ? (
-                  rightPageMarkdown != null ? (
-                    <ReactMarkdown>{rightPageMarkdown}</ReactMarkdown>
-                  ) : (
-                    <span className="text-slate-500">Loading markdown…</span>
-                  )
-                ) : (
-                  <span className="whitespace-pre-wrap">{getPageText(right, selectedPage) || '(no text)'}</span>
-                )}
-              </div>
+              )}
             </div>
           </div>
-          <div className="px-3 py-2 bg-slate-100 border-t border-slate-200">
-            Page Extraction Accuracy: {selectedPageAccuracy != null ? `${selectedPageAccuracy.accuracyPct}%` : 'N/A'}
-          </div>
-        </div>
-      ) : null}
 
-      {!(viewMode === 'raw' && selectedPage != null) && (
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 border border-slate-200 rounded overflow-hidden min-h-0">
-        <div
-          ref={leftColRef}
-          role="region"
-          aria-label={`${leftLabel} structure`}
-          className="p-3 sm:p-4 bg-slate-50 md:border-r border-slate-200 overflow-auto max-h-[320px] sm:max-h-[420px] min-h-0"
-          onScroll={viewMode === 'tree' ? () => handleScroll('left') : undefined}
-        >
-          {viewMode === 'raw' ? (
-            left ? <RawTextChips structure={left} label={`${leftLabel} (blocks as chips)`} /> : <p className="text-slate-500">No data</p>
-          ) : (
-            <>
-              <div className="text-xs font-semibold text-slate-500 uppercase mb-2">{leftLabel} structure</div>
-              {left ? <StructureTree structure={left} mismatches={mismatches} side="docx" scrollTargetId={FIRST_MISMATCH_HIGHLIGHT_ID} /> : <p className="text-slate-500">No data</p>}
-            </>
-          )}
-        </div>
-        <div
-          ref={rightColRef}
-          role="region"
-          aria-label={`${rightLabel} structure`}
-          className="p-3 sm:p-4 bg-slate-50 overflow-auto max-h-[320px] sm:max-h-[420px] min-h-0"
-          onScroll={viewMode === 'tree' ? () => handleScroll('right') : undefined}
-        >
-          {viewMode === 'raw' ? (
-            right ? <RawTextChips structure={right} label={`${rightLabel} (blocks as chips)`} /> : <p className="text-slate-500">No data</p>
-          ) : (
-            <>
-              <div className="text-xs font-semibold text-slate-500 uppercase mb-2">{rightLabel} structure</div>
-              {right ? <StructureTree structure={right} mismatches={mismatches} side="pdf" /> : <p className="text-slate-500">No data</p>}
-            </>
-          )}
-        </div>
-      </div>
-      )}
-      {left && right && diffSelection !== null && (
-        <div className="mt-4 border border-slate-200 rounded p-3 sm:p-4 overflow-x-auto min-w-0">
-          <h3 className="text-sm font-medium mb-2">Diff: Chapter {diffSelection.chapterIndex + 1}</h3>
-          <ReactDiffViewer
-            oldValue={left.chapters[diffSelection.chapterIndex]?.content_blocks.map((b) => b.content).join('\n') ?? ''}
-            newValue={right.chapters[diffSelection.chapterIndex]?.content_blocks.map((b) => b.content).join('\n') ?? ''}
-            splitView
-            useDarkTheme={false}
-          />
-        </div>
-      )}
-      {left && right && left.chapters.length > 0 && (() => {
-        const totalChapters = left.chapters.length;
-        const totalChapterPages = Math.ceil(totalChapters / CHAPTERS_PER_PAGE) || 1;
-        const currentChapterPage = Math.min(chapterPage, totalChapterPages - 1);
-        const startIdx = currentChapterPage * CHAPTERS_PER_PAGE;
-        const endIdx = Math.min(startIdx + CHAPTERS_PER_PAGE, totalChapters);
-        const showFirstLast = totalChapters > CHAPTERS_PER_PAGE;
-        return (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-sm text-slate-600 w-full sm:w-auto">Show diff for chapter:</span>
-            <div className="flex flex-wrap items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setChapterPage((p) => Math.max(0, p - 1))}
-                disabled={currentChapterPage === 0}
-                className="px-2 py-1 rounded text-sm bg-slate-200 hover:bg-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Previous
-              </button>
-              {showFirstLast && startIdx > 0 && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setDiffSelection((prev) => (prev?.chapterIndex === 0 ? null : { chapterIndex: 0 }))}
-                    className={`px-2 py-1 rounded text-sm ${diffSelection?.chapterIndex === 0 ? 'bg-slate-700 text-white' : 'bg-slate-200 hover:bg-slate-300'}`}
-                  >
-                    1
-                  </button>
-                  {startIdx > 1 && <span className="px-1 text-slate-500">…</span>}
-                </>
-              )}
-              {Array.from({ length: endIdx - startIdx }, (_, i) => startIdx + i).map((idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => setDiffSelection((prev) => (prev?.chapterIndex === idx ? null : { chapterIndex: idx }))}
-                  className={`px-2 py-1 rounded text-sm ${diffSelection?.chapterIndex === idx ? 'bg-slate-700 text-white' : 'bg-slate-200 hover:bg-slate-300'}`}
-                >
-                  {idx + 1}
-                </button>
-              ))}
-              {showFirstLast && endIdx < totalChapters && (
-                <>
-                  {endIdx < totalChapters - 1 && <span className="px-1 text-slate-500">…</span>}
-                  <button
-                    type="button"
-                    onClick={() => setDiffSelection((prev) => (prev?.chapterIndex === totalChapters - 1 ? null : { chapterIndex: totalChapters - 1 }))}
-                    className={`px-2 py-1 rounded text-sm ${diffSelection?.chapterIndex === totalChapters - 1 ? 'bg-slate-700 text-white' : 'bg-slate-200 hover:bg-slate-300'}`}
-                  >
-                    {totalChapters}
-                  </button>
-                </>
-              )}
-              <button
-                type="button"
-                onClick={() => setChapterPage((p) => Math.min(totalChapterPages - 1, p + 1))}
-                disabled={currentChapterPage >= totalChapterPages - 1}
-                className="px-2 py-1 rounded text-sm bg-slate-200 hover:bg-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Next
-              </button>
+          {/* Right: extracted content with TypeBadge pills */}
+          <div className="flex flex-col">
+            <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50">
+              <span className="text-[10px] font-semibold tracking-widest text-slate-400 uppercase">Extracted Content</span>
             </div>
-            <span className="text-xs text-slate-500">
-              {currentChapterPage + 1} of {totalChapterPages} ({totalChapters} chapters)
-            </span>
+            <div className="flex-1 overflow-auto max-h-[600px] p-4 bg-white">
+              <PageContent chapter={chapter} />
+            </div>
           </div>
-        );
-      })()}
+        </div>
+      ) : (
+        <p className="text-slate-500">No extraction data yet. Upload a PDF and wait for processing.</p>
+      )}
     </section>
   );
 }

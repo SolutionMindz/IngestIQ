@@ -29,8 +29,12 @@ logger = logging.getLogger(__name__)
 def _get_textract_client():
     """Create a boto3 Textract client using credentials from settings."""
     import boto3
+    from botocore.config import Config
     settings = get_settings()
-    kwargs: dict = {"region_name": settings.aws_region}
+    kwargs: dict = {
+        "region_name": settings.aws_region,
+        "config": Config(connect_timeout=10, read_timeout=30, retries={"max_attempts": 1}),
+    }
     if settings.aws_access_key_id:
         kwargs["aws_access_key_id"] = settings.aws_access_key_id
         kwargs["aws_secret_access_key"] = settings.aws_secret_access_key

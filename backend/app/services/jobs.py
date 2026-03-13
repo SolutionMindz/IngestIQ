@@ -9,7 +9,6 @@ from app.models.comparison import Comparison
 from app.models.validation import ValidationItem
 from app.models.page_validation import PageAccuracy
 from app.models.a2i import A2ITask
-from app.services.docx_extractor import extract_docx
 from app.services.pdf_extractor import extract_pdf
 from app.services.textract_extractor import extract_textract
 from app.services.comparison import run_comparison
@@ -152,9 +151,7 @@ def run_extraction_and_comparison(document_id: str) -> None:
             db.commit()
             return
 
-        if file_path.suffix.lower() == ".docx":
-            extract_docx(db, document_id, str(file_path))
-        elif file_path.suffix.lower() == ".pdf":
+        if file_path.suffix.lower() == ".pdf":
             try:
                 logger.info("Generating screenshots for document %s (PDF: %s)", document_id, file_path)
                 screens = generate_screenshots(db, document_id, str(file_path), upload_path)
@@ -196,24 +193,8 @@ def run_extraction_and_comparison(document_id: str) -> None:
                 return
             extract_pdf(db, document_id, str(file_path), upload_path=upload_path)
 
-            if _check_cancel(db, document_id, doc.name):
-                return
-            try:
-                extract_textract(db, document_id, str(file_path), doc.name, upload_path=upload_path)
-            except Exception as textract_err:
-                logger.exception("Textract extraction failed for %s: %s", document_id, textract_err)
-                db.add(
-                    AuditLog(
-                        document_id=document_id,
-                        document_name=doc.name,
-                        reviewer="System",
-                        action=f"Textract extraction failed: {str(textract_err)[:500]}",
-                        validation_result="Error",
-                        parser_version=get_settings().parser_version,
-                        metadata_={"error": str(textract_err)[:500]},
-                    )
-                )
-                db.commit()
+            # TODO: Re-enable AWS Textract extraction when valid credentials are available.
+            # extract_textract(db, document_id, str(file_path), doc.name, upload_path=upload_path)
         else:
             logger.warning("Background job: unsupported extension for %s", file_path)
             doc.processing_stage = "error"
@@ -299,7 +280,7 @@ def run_re_extract(document_id: str) -> None:
             Extraction.source.in_(["pdf", "textract", "ocr"]),
         ).delete(synchronize_session=False)
         # Null audit_log.comparison_id so we can delete comparisons
-        comp_ids = [c.id for c in db.query(Comparison).filter(Comparison.document_id == document_id).all()]
+        comp_ids = [row[0] for row in db.query(Comparison.id).filter(Comparison.document_id == document_id).all()]
         if comp_ids:
             db.query(AuditLog).filter(AuditLog.comparison_id.in_(comp_ids)).update(
                 {AuditLog.comparison_id: None}, synchronize_session=False
@@ -324,10 +305,8 @@ def run_re_extract(document_id: str) -> None:
         db.commit()
         logger.info("Re-extract: running extraction for document %s (%s)", document_id, doc.name)
         extract_pdf(db, document_id, str(file_path), upload_path=upload_path)
-        try:
-            extract_textract(db, document_id, str(file_path), doc.name, upload_path=upload_path)
-        except Exception as textract_err:
-            logger.exception("Re-extract: Textract failed for %s: %s", document_id, textract_err)
+        # TODO: Re-enable AWS Textract extraction when valid credentials are available.
+        # extract_textract(db, document_id, str(file_path), doc.name, upload_path=upload_path)
         db.refresh(doc)
         doc.processing_stage = "comparing"
         db.commit()

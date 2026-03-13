@@ -53,17 +53,27 @@ export default function Dashboard() {
       }
       return;
     }
+    let failures = 0;
     const poll = () => {
-      fetchDocumentById(selectedDocumentId).then((doc) => {
-        if (!doc) return;
-        if (doc.processingStage === 'done' || doc.processingStage === 'error' || doc.processingStage === 'cancelled') {
+      fetchDocumentById(selectedDocumentId)
+        .then((doc) => {
+          failures = 0;
+          if (!doc) return;
           setDocuments((prev) => prev.map((d) => (d.documentId === selectedDocumentId ? doc : d)));
-          if (pollRef.current) {
+          if (doc.processingStage === 'done' || doc.processingStage === 'error' || doc.processingStage === 'cancelled') {
+            if (pollRef.current) {
+              clearInterval(pollRef.current);
+              pollRef.current = null;
+            }
+          }
+        })
+        .catch(() => {
+          failures += 1;
+          if (failures >= 3 && pollRef.current) {
             clearInterval(pollRef.current);
             pollRef.current = null;
           }
-        }
-      });
+        });
     };
     poll();
     pollRef.current = setInterval(poll, 2000);

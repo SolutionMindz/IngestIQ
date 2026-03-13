@@ -10,11 +10,11 @@ router = APIRouter()
 
 @router.get("/documents/{document_id}/structure", response_model=DocumentStructure | None)
 def get_structure(document_id: str, source: str, db: Session = Depends(get_db)):
-    if source not in ("docx", "pdf", "textract", "ocr"):
-        raise HTTPException(400, "source must be docx, pdf, or ocr")
+    if source not in ("pdf", "textract", "ocr"):
+        raise HTTPException(400, "source must be pdf, textract, or ocr")
     doc = db.query(Document).filter(Document.id == document_id).first()
     if not doc:
-        return None
+        raise HTTPException(404, "Document not found")
     ext = db.query(Extraction).filter(Extraction.document_id == document_id, Extraction.source == source).first()
     if not ext:
         return None

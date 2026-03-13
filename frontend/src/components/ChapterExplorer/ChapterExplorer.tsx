@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
+import React, { useState, useEffect } from 'react';
 import type { DocumentStructure, Chapter, ContentBlock } from '../../types/structure';
 import type { PageAccuracyItem } from '../../api';
 import type { A2ITask } from '../../types/a2i';
@@ -29,8 +28,20 @@ interface ChapterExplorerProps {
 function getStatusColor(status: PageAccuracyItem['status']): string {
   if (status === 'OK') return 'bg-green-500';
   if (status === 'WARNING') return 'bg-amber-500';
+  if (status === 'FORMULA') return 'bg-blue-500';
+  if (status === 'IMAGE') return 'bg-purple-500';
+  if (status === 'SPARSE') return 'bg-gray-400';
   return 'bg-red-500';
 }
+
+const STATUS_LABEL: Record<string, string | null> = {
+  OK: null,
+  WARNING: null,
+  ERROR: null,
+  FORMULA: 'formula page',
+  IMAGE: 'image page',
+  SPARSE: 'sparse page',
+};
 
 function getChapterForPage(structure: DocumentStructure | null, pageNumber: number): Chapter | null {
   if (!structure?.chapters) return null;
@@ -52,6 +63,132 @@ function getOtherSideContentSet(chapter: Chapter | null): Set<string> {
   return set;
 }
 
+// Human-readable label for each block type (matches reference design)
+const BLOCK_TYPE_LABEL: Record<string, string> = {
+  title:      'Heading',
+  paragraph:  'Paragraph',
+  text:       'Paragraph',
+  list_item:  'List',
+  code_block: 'Code',
+  code:       'Code',
+  table:      'Table',
+  formula:    'Formula',
+  image:      'Figure',
+};
+
+// Badge color variant per type
+const BADGE_COLOR: Record<string, string> = {
+  title:      'bg-slate-100 text-slate-600',
+  paragraph:  'bg-slate-100 text-slate-600',
+  text:       'bg-slate-100 text-slate-600',
+  list_item:  'bg-blue-50 text-blue-600',
+  code_block: 'bg-slate-100 text-slate-600',
+  code:       'bg-slate-100 text-slate-600',
+  table:      'bg-violet-50 text-violet-600',
+  formula:    'bg-slate-100 text-slate-600',
+  image:      'bg-slate-100 text-slate-600',
+};
+
+function TypeBadge({ type }: { type: string }) {
+  const label = BLOCK_TYPE_LABEL[type] ?? type;
+  const color = BADGE_COLOR[type] ?? 'bg-slate-100 text-slate-600';
+  return (
+    <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full ${color}`}>
+      {label}
+    </span>
+  );
+}
+
+function renderBlockContent(block: ContentBlock): React.ReactNode {
+  if (block.type === 'title') {
+    return <p className="font-bold text-slate-900 text-lg leading-snug mt-1">{block.content}</p>;
+  }
+  if (block.type === 'list_item') {
+    return (
+      <div className="border-l-2 border-blue-300 pl-3 mt-1">
+        <p className="text-slate-800">{block.content}</p>
+      </div>
+    );
+  }
+  if (block.type === 'code_block' || block.type === 'code') {
+    return (
+      <pre className="mt-1 text-xs font-mono text-slate-800 bg-slate-50 border border-slate-200 rounded p-2 whitespace-pre-wrap overflow-x-auto">
+        {block.content}
+      </pre>
+    );
+  }
+  if (block.type === 'formula') {
+    return <p className="mt-1 text-slate-500 italic">[Formula]</p>;
+  }
+  if (block.type === 'table') {
+    return <OcrTable content={block.content} />;
+  }
+  if (block.type === 'image') {
+    const hasAltText = block.content && block.content !== '[figure]' && block.content !== '[Figure]';
+    return hasAltText
+      ? <p className="mt-1 text-slate-500 italic text-sm">[Figure] {block.content}</p>
+      : <p className="mt-1 text-slate-400 italic">[Figure]</p>;
+  }
+  // paragraph / text
+  return <p className="mt-1 text-slate-800 leading-relaxed">{block.content}</p>;
+}
+
+/** Render OCR table content as an HTML table.
+ *  Content is tab/pipe separated rows, or falls back to plain text. */
+function OcrTable({ content }: { content: string }) {
+  const lines = (content ?? '').split('\n').filter((l) => l.trim());
+  // Try pipe-separated markdown table
+  const rows = lines.map((line) =>
+    line.replace(/^\||\|$/g, '').split('|').map((c) => c.trim())
+  );
+  const hasCols = rows.length > 0 && rows[0].length > 1;
+  if (!hasCols) {
+    return <pre className="mt-1 text-xs font-mono text-slate-700 whitespace-pre-wrap">{content}</pre>;
+  }
+  const [header, _sep, ...body] = rows;
+  const dataRows = body.length > 0 ? body : rows.slice(1);
+  return (
+    <div className="mt-1 overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        {header && (
+          <thead>
+            <tr>
+              {header.map((cell, i) => (
+                <th key={i} className="text-left px-3 py-2 text-slate-600 font-medium border-b border-slate-200">
+                  {cell}
+                </th>
+              ))}
+            </tr>
+          </thead>
+        )}
+        <tbody>
+          {dataRows.map((row, ri) => (
+            <tr key={ri} className="border-b border-slate-100 last:border-0">
+              {row.map((cell, ci) => (
+                <td key={ci} className="px-3 py-2 text-slate-700 align-top">
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function renderBlock(block: ContentBlock, highlighted: boolean) {
+  return (
+    <div
+      key={block.id}
+      className={`pb-3 mb-1 border-b border-slate-100 last:border-0 ${highlighted ? 'bg-amber-50 -mx-1 px-1 rounded' : ''}`}
+    >
+      <TypeBadge type={block.type} />
+      {renderBlockContent(block)}
+    </div>
+  );
+}
+
 function renderPageContent(
   chapter: Chapter | null,
   failedMessage: string,
@@ -60,28 +197,17 @@ function renderPageContent(
   if (!chapter) return <p className="text-slate-500">{failedMessage}</p>;
   const otherSet = getOtherSideContentSet(otherChapter);
   return (
-    <div className="space-y-2 text-sm prose prose-slate max-w-none prose-p:my-1 prose-pre:my-1 prose-ul:my-1 prose-ol:my-1">
-      {chapter.content_blocks.map((block: ContentBlock) => {
-        const normalized = normalizeForDiff(block.content || '');
-        const onlyInThisColumn = normalized && !otherSet.has(normalized);
-        return (
-          <div
-            key={block.id}
-            className={`border-l-2 pl-2 py-0.5 ${onlyInThisColumn ? 'border-amber-400 bg-amber-50' : 'border-slate-200'}`}
-          >
-            <div className="markdown-preview text-slate-800">
-              <ReactMarkdown>
-                {block.type === 'table'
-                  ? `\`\`\`\n${block.content ?? ''}\n\`\`\``
-                  : (block.content ?? '')}
-              </ReactMarkdown>
-            </div>
-            {block.wordCount != null && (
-              <span className="text-xs text-slate-400">({block.wordCount} words)</span>
-            )}
-          </div>
-        );
-      })}
+    <div>
+      <div className="text-[10px] font-semibold tracking-widest text-slate-400 uppercase mb-3">
+        Extracted Content
+      </div>
+      <div className="space-y-0">
+        {chapter.content_blocks.map((block: ContentBlock) => {
+          const normalized = normalizeForDiff(block.content || '');
+          const onlyInThisColumn = !!(normalized && !otherSet.has(normalized));
+          return renderBlock(block, onlyInThisColumn);
+        })}
+      </div>
     </div>
   );
 }
@@ -262,7 +388,7 @@ export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
     return (
       <section className="bg-white rounded-lg shadow p-4 sm:p-6 min-w-0">
         <h2 className="text-lg font-semibold text-slate-800 mb-4">3. Chapter Explorer</h2>
-        <p className="text-slate-500">Select a document to compare Native PDF vs AWS Textract by page.</p>
+        <p className="text-slate-500">Select a document to compare PaddleOCR vs AWS Textract by page.</p>
       </section>
     );
   }
@@ -283,7 +409,7 @@ export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
     return (
       <section className="bg-white rounded-lg shadow p-4 sm:p-6 min-w-0">
         <h2 className="text-lg font-semibold text-slate-800 mb-4">3. Chapter Explorer</h2>
-        <p className="text-slate-500">No PDF or Textract extraction yet. Upload a PDF and wait for processing.</p>
+        <p className="text-slate-500">No PaddleOCR or Textract extraction yet. Upload a PDF and wait for processing.</p>
       </section>
     );
   }
@@ -315,6 +441,9 @@ export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
                   aria-hidden
                 />
                 <span className="font-medium text-slate-800">Page {pageNum}</span>
+                {STATUS_LABEL[status] && (
+                  <span className="text-[10px] text-slate-400 italic">{STATUS_LABEL[status]}</span>
+                )}
                 {acc != null && (
                   <span className="text-xs text-slate-500 ml-auto">{acc.accuracyPct.toFixed(1)}%</span>
                 )}
@@ -343,16 +472,14 @@ export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
           {selectedPage != null ? (
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border border-slate-200 rounded overflow-hidden min-h-0">
-                <div className="p-3 sm:p-4 bg-slate-50 border-r border-slate-200 overflow-auto max-h-[400px] min-h-[200px]">
-                  <div className="text-xs font-semibold text-slate-500 uppercase mb-2">Native PDF (Left)</div>
+                <div className="p-4 bg-white border-r border-slate-200 overflow-auto max-h-[600px] min-h-[200px]">
                   {renderPageContent(
                     nativeChapter,
-                    'Native extraction failed for this page.',
+                    'PaddleOCR extraction failed for this page.',
                     textractChapter
                   )}
                 </div>
-                <div className="p-3 sm:p-4 bg-slate-50 overflow-auto max-h-[400px] min-h-[200px]">
-                  <div className="text-xs font-semibold text-slate-500 uppercase mb-2">AWS Textract (Right)</div>
+                <div className="p-4 bg-white overflow-auto max-h-[600px] min-h-[200px]">
                   {renderPageContent(
                     textractChapter,
                     'Textract extraction failed for this page.',
@@ -456,7 +583,7 @@ export default function ChapterExplorer({ documentId }: ChapterExplorerProps) {
             </>
           ) : (
             <div className="border border-slate-200 rounded p-6 text-slate-500 text-center">
-              Select a page from the list to view Native PDF vs AWS Textract comparison.
+              Select a page from the list to view PaddleOCR vs AWS Textract comparison.
             </div>
           )}
         </div>

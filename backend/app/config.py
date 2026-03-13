@@ -8,7 +8,15 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://sanjeev@127.0.0.1/Textract"
     upload_dir: str = "uploads"
     parser_version: str = "1.0.0"
-    screenshot_dpi: int = 400
+    screenshot_dpi: int = 150
+
+    # Section 7: PP-Structure layout and specialized OCR (plan paddleocr_integration_plan)
+    use_pp_structure: bool = False  # PPStructureV3 unavailable — use heuristic OCR classifier instead
+    use_formula_ocr: bool = False  # Formula regions → LaTeX (requires formula model)
+    use_code_ocr: bool = False     # Code regions → code-specific OCR
+    use_pix2tex: bool = False      # Tier-1: send small inline image blocks to pix2tex for LaTeX
+    use_nougat_ocr: bool = False   # Tier-2: full-page formula OCR via Nougat (requires nougat-ocr; ~60s CPU)
+    use_surya_ocr: bool = False    # Tier-2: image/diagram OCR via Surya (requires surya-ocr; ~3-5s CPU)
 
     # AWS (optional for Textract)
     aws_access_key_id: str | None = None

@@ -109,7 +109,7 @@ export default function UsersPage() {
         }}
       />
 
-      {/* 2. Structural Comparison Viewer (left: DOCX/PDF, right: OCR) */}
+      {/* 2. Structural Comparison Viewer (left: PaddleOCR, right: Textract) */}
       <StructuralComparison key={`struct-${selectedDocumentId}-${selectedDoc?.processingStage ?? ''}`} documentId={selectedDocumentId} />
     </div>
   );

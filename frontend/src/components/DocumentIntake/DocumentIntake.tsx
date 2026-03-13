@@ -100,7 +100,7 @@ export default function DocumentIntake({ document, onUploadComplete }: DocumentI
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'], 'application/pdf': ['.pdf'] },
+    accept: { 'application/pdf': ['.pdf'] },
     maxFiles: 1,
     disabled: uploading,
   });
@@ -121,7 +121,7 @@ export default function DocumentIntake({ document, onUploadComplete }: DocumentI
           {uploading ? (
             <p className="text-slate-600">Uploading…</p>
           ) : (
-            <p className="text-slate-600">{isDragActive ? 'Drop file here' : 'Drag & drop .docx or .pdf here, or click to select'}</p>
+            <p className="text-slate-600">{isDragActive ? 'Drop file here' : 'Drag & drop .pdf here, or click to select'}</p>
           )}
         </div>
       </div>
